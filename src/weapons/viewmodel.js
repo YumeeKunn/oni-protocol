@@ -52,15 +52,15 @@ function hand(kit, side = 1) {
   const m = mats(kit);
   const s = side;   // 1 = right, -1 = left
   // glove
-  const glove = part(g, B(0.085, 0.075, 0.13, 0.2), m.glove, 0, 0, 0);
-  part(g, B(0.09, 0.03, 0.055, 0.2), m.glove, 0, 0.036 * 0 + 0.012, -0.055, 0.25, 0, 0);   // fingers
-  part(g, B(0.028, 0.06, 0.09, 0.2), m.glove, s * 0.055, 0.01, -0.02, 0, 0, 0);            // thumb
+  const glove = part(g, B(0.095, 0.085, 0.15, 0.2), m.glove, 0, 0, 0);
+  part(g, B(0.10, 0.034, 0.06, 0.2), m.glove, 0, 0.014, -0.065, 0.25, 0, 0);              // fingers
+  part(g, B(0.032, 0.07, 0.10, 0.2), m.glove, s * 0.06, 0.008, -0.02, 0, 0, 0);           // thumb
   // wristband
-  part(g, B(0.1, 0.085, 0.045, 0.2), m.band, 0, 0, 0.085);
-  // sleeve
-  const sleeve = part(g, B(0.115, 0.1, 0.26, 0.4), m.sleeve, 0, -0.004, 0.24);
+  part(g, B(0.11, 0.095, 0.05, 0.2), m.band, 0, 0, 0.095);
+  // forearm — long enough to run off the bottom of the frame in hip pose
+  const sleeve = part(g, B(0.125, 0.11, 0.52, 0.4), m.sleeve, 0, -0.006, 0.34);
   sleeve.scale.set(1, 1, 1);
-  part(g, B(0.125, 0.11, 0.09, 0.4), m.sleeve, 0, -0.004, 0.14, 0.05, 0, 0);
+  part(g, B(0.135, 0.12, 0.10, 0.4), m.sleeve, 0, -0.006, 0.15, 0.05, 0, 0);
   return g;
 }
 

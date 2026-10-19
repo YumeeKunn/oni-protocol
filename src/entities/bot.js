@@ -432,6 +432,13 @@ export class Bot {
       this.lastAttacker = from;
       // flinch the aim
       this.recoilAim += amount * 0.0022;
+      // getting shot pulls attention to the shooter even from outside the cone
+      if (from.alive) {
+        this.target = from;
+        this.targetSeen = performance.now() / 1000;
+        this.lastSeenPos.set(from.pos.x, from.pos.y + from.height * 0.6, from.pos.z);
+        this.reactT = Math.min(this.reactT, 0.12);
+      }
     }
     if (this.hp <= 0) {
       this.die(from, weaponName, opts);
@@ -449,7 +456,7 @@ export class Bot {
     const local = Math.cos(dir) * 1;
     this.model.die(Math.cos(angleDelta(this.yaw, dir)) > 0 ? 1 : -1, performance.now() / 1000);
     if (this.tag) this.tag.visible = false;
-    sfx.death();
+    sfx.death(this.game.player.pos.distanceTo(this.pos));
     this.game.onBotDeath?.(this, from, weaponName, opts);
     this.game.squad?.onDeath?.(this, from, weaponName, opts);
   }
@@ -467,11 +474,11 @@ export class Bot {
       if (!hostile) continue;
       const dx = e.pos.x - this.pos.x, dz = e.pos.z - this.pos.z;
       const dist = Math.hypot(dx, dz);
-      const maxSee = 78 * this.difficulty.accuracyRange;
+      const maxSee = 48 * this.difficulty.accuracyRange;
       if (dist > maxSee) continue;
       const bearing = Math.atan2(-dx, -dz);
       const off = Math.abs(angleDelta(this.yaw, bearing));
-      const fov = dist < 6 ? Math.PI : 1.5;
+      const fov = dist < 7 ? 1.35 : 0.95;   // ≈155° close, ≈109° normal cone
       if (off > fov) continue;
       const target = new THREE.Vector3(e.pos.x, e.pos.y + e.height * 0.62, e.pos.z);
       if (!this.lineOfSight(eye, target)) continue;
@@ -552,8 +559,8 @@ export class Bot {
     // ── state machine ──
     if (hasTarget) {
       const dist = Math.hypot(this.target.pos.x - this.pos.x, this.target.pos.z - this.pos.z);
-      const ideal = this.weapon.cls === 'shotgun' ? 6 : (this.weapon.cls === 'smg' ? 12 : (isSniper ? 40 : 20));
-      this.state = dist > ideal * 1.5 ? 'advance' : (dist < ideal * 0.55 ? 'back' : 'hold');
+      const ideal = this.weapon.cls === 'shotgun' ? 4.5 : (this.weapon.cls === 'smg' ? 8 : (isSniper ? 26 : 13));
+      this.state = dist > ideal * 1.25 ? 'advance' : (dist < ideal * 0.6 ? 'back' : 'hold');
     } else {
       this.state = this.goalSetT > 7 ? 'reposition' : 'advance';
     }
@@ -578,9 +585,15 @@ export class Bot {
     let wishX = 0, wishZ = 0;
     const standoff = hasTarget && this.state === 'hold';
     if (standoff) {
-      // strafe around the enemy, keep the distance
+      // strafe around the enemy, keep the distance — but break off if the strafe
+      // grinds into a wall or another prop
       this.strafeT -= dt;
-      if (this.strafeT <= 0) { this.strafeT = rand(0.6, 1.8); this.strafeDir *= -1; }
+      if (this.strafeT <= 0 || this.blockT > 0.25) {
+        this.strafeT = rand(0.6, 1.8);
+        this.strafeDir *= -1;
+        if (this.blockT > 0.25) this.blockT = 0;
+      }
+      if (this.stuckT > 0.55) { this.state = 'advance'; this.path = null; this.repathT = 0; }
       const a = Math.atan2(this.target.pos.x - this.pos.x, this.target.pos.z - this.pos.z) + Math.PI / 2;
       wishX = Math.sin(a) * this.strafeDir;
       wishZ = Math.cos(a) * this.strafeDir;
@@ -633,7 +646,7 @@ export class Bot {
       aimTargetYaw = Math.atan2(-wishX, -wishZ);
       this.aimPitch = damp(this.aimPitch, 0, 4, dt);
     }
-    const turnRate = 6.2 * (1 / Math.max(0.4, d.reaction * 3.2));
+    const turnRate = 7.6 * (1 / Math.max(0.4, d.reaction * 3.2));
     this.aimYaw = rotTowards(this.aimYaw, aimTargetYaw, turnRate * dt);
     if (hasTarget) this.aimPitch = rotTowards(this.aimPitch, aimTargetPitch, turnRate * 0.8 * dt);
     this.yaw = this.aimYaw;
@@ -699,7 +712,7 @@ export class Bot {
       if (this.mag <= 0) {
         this.reloading = this.weapon.reload * rand(0.95, 1.15);
         sfx.mech('mag');
-      } else if (this.reactT <= 0 && off < 0.22 && this.dropCooldown <= 0) {
+      } else if (this.reactT <= 0 && off < 0.13 && this.dropCooldown <= 0) {
         if (this.fireT <= 0) this.shoot(dist);
       }
       // grenades when the enemy sits behind cover nearby
@@ -737,12 +750,12 @@ export class Bot {
     this.bShots = (this.bShots || 0) + 1;
     if (this.burstPause > 0) { this.burstPause -= 0.1; return; }
     if (this.burstLeft <= 0) {
-      this.burstLeft = w.cls === 'sniper' ? 1 : (w.cls === 'shotgun' ? 1 : Math.round(rand(3, 6)));
+      this.burstLeft = w.cls === 'sniper' ? 1 : (w.cls === 'shotgun' ? 1 : Math.round(rand(2, 4)));
     }
     this.mag--;
     this.burstLeft--;
     this.fireT = (60 / w.rpm) / d.fireRate;
-    if (this.burstLeft <= 0) this.fireT += rand(0.25, 0.75) / d.fireRate;
+    if (this.burstLeft <= 0) this.fireT += rand(0.45, 0.9) / d.fireRate;
     this.model.gunRecoil = 1;
     if (this.target && this.target.weaponRecoilHit) this.target.weaponRecoilHit();
 
@@ -752,14 +765,24 @@ export class Bot {
     this.distToListener = this.game.player.pos.distanceTo(this.pos);
     const pan = this.panToListener();
     sfx.gunshot(w.audio, { dist: this.distToListener, pan, indoors: false, first: false });
-    this.game.fx.tracer(muzzle, this.target ? new THREE.Vector3(this.target.pos.x, this.target.pos.y + 1.1, this.target.pos.z) : muzzle.clone().add(new THREE.Vector3(0, 0, -4)), { width: 0.03, opacity: 0.5, color: 0xffd89a });
+
+    // don't fire into cover: re-check line of sight on every shot
+    const eye = new THREE.Vector3(this.pos.x, this.eyeY, this.pos.z);
+    const chest = new THREE.Vector3(this.target.pos.x, this.target.pos.y + this.target.height * 0.6, this.target.pos.z);
+    if (!this.lineOfSight(eye, chest)) { this.reactT = 0.18; return; }
 
     // physics-based shot with difficulty spread
     const origin = muzzle.clone();
-    const aim = new THREE.Vector3(this.lastSeenPos.x - origin.x, this.lastSeenPos.y - origin.y + 0.05, this.lastSeenPos.z - origin.z).normalize();
-    const spreadDeg = (w.spread.base + w.spread.move) * d.spread * (0.6 + dist / 60) + this.recoilAim * 6;
+    const tp = this.target.pos;
+    const chestY = tp.y + this.target.height * (0.55 + Math.random() * 0.12);
+    const aim = new THREE.Vector3(tp.x - origin.x, chestY - origin.y, tp.z - origin.z).normalize();
+    const movePenalty = this.speed > 2.2 ? 1.7 : 1;
+    const spreadDeg = (0.20 + w.spread.base) * d.spread * movePenalty * (1 + dist / 16) + this.recoilAim * 5;
     const dir = spreadDir(aim, spreadDeg, new THREE.Vector3(0, 1, 0));
     const hit = hitscan(this.game, this, origin, dir, 200, { team: true, friendlyFire: false });
+    // tracer ends at the impact point, never behind a wall
+    const endPt = hit.point ? hit.point.clone() : origin.clone().addScaledVector(dir, 60);
+    this.game.fx.tracer(muzzle, endPt, { width: 0.03, opacity: 0.5, color: 0xffd89a });
     if (hit.type === 'world') {
       this.bWorld = (this.bWorld || 0) + 1;
       this.game.fx.impact(hit.point, hit.normal, hit.tag, this.distToListener);
@@ -768,6 +791,11 @@ export class Bot {
       this.bHits = (this.bHits || 0) + 1;
       const ent = hit.entity;
       let dmg = (w.dmg * d.dmg) * rand(0.9, 1.1);
+      if (w.falloff) {
+        const [f0, f1, fmin] = w.falloff;
+        const f = hit.dist <= f0 ? 1 : hit.dist >= f1 ? fmin : 1 + (fmin - 1) * ((hit.dist - f0) / (f1 - f0));
+        dmg *= f;
+      }
       if (hit.headshot) dmg *= w.headMult * (chance(0.6) ? 1 : 0.5);
       const killed = ent.damage(dmg, this, w.name, { headshot: hit.headshot, dist: hit.dist });
       this.game.fx.impact(hit.point, null, 'flesh');

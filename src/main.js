@@ -334,7 +334,7 @@ class Game {
         this.player.pitch = Math.sin(this.menuT * 0.11) * 0.05;
         this.player.pos.y = this.world.groundHeight(this.player.pos.x, this.player.pos.z);
         this.player.updateCamera(dt);
-        this.world.update(dt, this.menuT);
+        this.world.update(dt, this.menuT, this.menuFocus || this.player.pos);
         this.fx.update(dt, this.player.camera);
       }
     }
@@ -375,7 +375,9 @@ class Game {
 
     this.match?.update(dt);
     this.updateRespawn(dt);
-    this.world.update(dt, this.time);
+    this.world.update(dt, this.time, this.player.pos);
+    // no first-person arms while dead / in the killcam
+    this.viewmodelRoot.visible = this.player.alive && !this.killcam;
     this.fx.update(dt, this.player.camera);
     this.hud.update(dt, this.time);
     if (this.lockHint) this.lockHint.classList.toggle('on', !this.input.locked && !this.script && this.player.alive);

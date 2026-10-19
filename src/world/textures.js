@@ -366,17 +366,17 @@ export function makeConcrete() {
 
 export function makeAsphalt() {
   const map = canvasOf(512, 512, (c, w, h) => {
-    c.fillStyle = '#4c4a48'; c.fillRect(0, 0, w, h);
+    c.fillStyle = '#6b6964'; c.fillRect(0, 0, w, h);
     speckle(c, w, h, 5000, 0.1, false);
     speckle(c, w, h, 4200, 0.13, true);
     for (let i = 0; i < 22; i++) {   // cracks + patches
-      c.strokeStyle = 'rgba(24,22,20,0.6)'; c.lineWidth = 0.8 + Math.random() * 1.8;
+      c.strokeStyle = 'rgba(38,36,33,0.55)'; c.lineWidth = 0.8 + Math.random() * 1.8;
       c.beginPath(); let x = Math.random() * w, y = Math.random() * h; c.moveTo(x, y);
       for (let s = 0; s < 5; s++) { x += (Math.random() - .5) * 70; y += (Math.random() - .5) * 70; c.lineTo(x, y); }
       c.stroke();
     }
     for (let i = 0; i < 6; i++) {
-      c.fillStyle = `rgba(60,58,56,${0.3 + Math.random() * 0.3})`;
+      c.fillStyle = `rgba(96,93,88,${0.3 + Math.random() * 0.3})`;
       c.beginPath(); c.ellipse(Math.random() * w, Math.random() * h, 30 + Math.random() * 60, 20 + Math.random() * 40, Math.random() * 3, 0, 7); c.fill();
     }
   });

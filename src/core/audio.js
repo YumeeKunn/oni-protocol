@@ -305,11 +305,21 @@ export const sfx = {
   slide() { if (ready) burst(0.42, 700, 0.5, 0.22, { slide: 180, type: 'bandpass' }); },
   dash() { if (ready) { burst(0.24, 1200, 0.8, 0.26, { slide: 2800 }); tone(340, 720, 0.18, 'sine', 0.1); } },
 
-  hurt(hp = 1) { if (ready) { tone(200, 80, 0.16, 'sawtooth', 0.24); burst(0.14, 500, 0.9, 0.16); } },
-  death() {
+  hurt(hp = 1) {
     if (!ready) return;
-    tone(360, 40, 1.2, 'sawtooth', 0.32);
-    burst(1.0, 700, 0.5, 0.24, { slide: 70, type: 'lowpass' });
+    // dull impact + air punch, no sawtooth (that read as a synthetic grunt)
+    burst(0.12, 300, 0.8, 0.22);
+    tone(90, 58, 0.13, 'sine', 0.18);
+    burst(0.05, 1700, 1.3, 0.07);
+  },
+  death(dist = 0) {
+    if (!ready) return;
+    // body drop + cloth/gear rustle. The old 360→40 Hz sawtooth read as a
+    // weird descending groan, so there's no tonal sweep here at all.
+    const v = dist > 0 ? Math.max(0.07, 1 / (1 + dist * 0.075)) : 1;
+    burst(0.16, 190, 0.7, 0.30 * v, { type: 'lowpass' });
+    burst(0.10, 820, 0.8, 0.09 * v, { slide: 330, type: 'lowpass' });
+    if (Math.random() < 0.6) burst(0.05, 2300, 1.7, 0.045 * v);
   },
 
   hitmarker(head = false) {

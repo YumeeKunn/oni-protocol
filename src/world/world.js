@@ -94,10 +94,20 @@ export function buildWorld(scene, renderer) {
     bounds: ARENA_HALF,
     name: MAP_NAME,
     groundHeight,
-    update(dt, t) {
+    update(dt, t, focus) {
       for (const fn of B.anim) fn(dt, t);
       dust.update(dt, t);
       sky.update(t);
+      // keep the shadow frustum centred on the player, snapped to shadow texels
+      // so the edges don't crawl as you walk
+      if (focus) {
+        const texel = (lights.S * 2) / RENDER.shadowMap;
+        const sx = Math.round(focus.x / texel) * texel;
+        const sz = Math.round(focus.z / texel) * texel;
+        lights.sun.target.position.set(sx, 0, sz);
+        lights.sun.position.set(sx + SUN_DIR.x * 90, SUN_DIR.y * 90, sz + SUN_DIR.z * 90);
+        lights.sun.target.updateMatrixWorld();
+      }
     },
   };
 }
@@ -210,17 +220,19 @@ function buildLights(scene) {
   const sun = new THREE.DirectionalLight(SUN.color, SUN.intensity);
   sun.position.copy(SUN_DIR).multiplyScalar(90);
   sun.castShadow = true;
-  const S = 62;
+  // a tight frustum that follows the player gives ~2× the texel density of a
+  // map-wide one, which is what kills the striped shadow acne on plaster walls
+  const S = 36;
   sun.shadow.camera.left = -S; sun.shadow.camera.right = S;
   sun.shadow.camera.top = S; sun.shadow.camera.bottom = -S;
   sun.shadow.camera.near = 1; sun.shadow.camera.far = 260;
   sun.shadow.mapSize.set(RENDER.shadowMap, RENDER.shadowMap);
-  sun.shadow.bias = -0.0006;
-  sun.shadow.normalBias = 0.035;
+  sun.shadow.bias = -0.00025;
+  sun.shadow.normalBias = 0.075;
   scene.add(sun);
   scene.add(sun.target);
 
-  const hemi = new THREE.HemisphereLight(0xbcd4f0, 0xb99a68, 1.28);
+  const hemi = new THREE.HemisphereLight(0xbcd4f0, 0xb99a68, 1.42);
   scene.add(hemi);
 
   // bounce light from the hot ground so shadowed faces aren't black
@@ -228,7 +240,7 @@ function buildLights(scene) {
   bounce.position.set(-SUN_DIR.x * 40, 6, -SUN_DIR.z * 40);
   scene.add(bounce);
 
-  return { sun, hemi, bounce };
+  return { sun, hemi, bounce, S };
 }
 
 // ═══════════════ dust motes ═══════════════

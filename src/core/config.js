@@ -74,20 +74,20 @@ export const ZONES = [
 export const ARENA = { half: 52 };
 
 export const MOVE = {
-  walk: 6.6,
-  sprint: 9.2,
-  crouch: 3.4,
+  walk: 4.9,
+  sprint: 6.9,
+  crouch: 2.55,
   adsMul: 0.62,
-  accel: 13,            // ground accelerate() factor  (Quake/CS style)
-  airAccel: 34,         // air accelerate() factor — enables air-strafing
+  accel: 12,            // ground accelerate() factor  (Quake/CS style)
+  airAccel: 30,         // air accelerate() factor — enables air-strafing
   airWishCap: 1.5,      // m/s wish-speed cap in air (airstrafe)
-  friction: 6.2,
+  friction: 6.6,
   stopSpeed: 3.0,
-  gravity: 20.5,
-  jumpVel: 7.0,
+  gravity: 21,
+  jumpVel: 6.2,
   jumpBuffer: 0.12,
   coyote: 0.10,
-  slideBoost: 12.5,
+  slideBoost: 9.5,
   slideTime: 0.75,
   slideFriction: 2.4,
   stepHeight: 0.52,
