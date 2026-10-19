@@ -1,14 +1,16 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>DUST STRIKE // Tactical FPS</title>
-<link rel="stylesheet" href="style.css?v=11">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DUST STRIKE — Tactical FPS</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%2317191a'/><circle cx='8' cy='8' r='5' fill='none' stroke='%23ffd45e' stroke-width='2'/></svg>">
+<link rel="stylesheet" href="./style.css">
 <script type="importmap">
 {
   "imports": {
-    "three": "./libs/three.module.js?v=10"
+    "three": "./libs/three.module.js",
+    "three/addons/": "./libs/"
   }
 }
 </script>
@@ -17,124 +19,230 @@
 
 <canvas id="game-canvas"></canvas>
 
-<div id="vignette"></div>
-<div id="scanlines"></div>
-<div id="vignette-damage"></div>
-<div id="vignette-dash"></div>
-<div id="vignette-heal"></div>
-<div id="damage-layer"></div>
-
-<!-- ═══════════ HUD ═══════════ -->
-<div id="hud">
-  <!-- health -->
-  <div class="hud-panel" id="health-panel">
-    <div id="health-label"><span>VITALS // 体力</span><span id="health-num">100</span></div>
-    <div id="health-bar-outer"><div id="health-bar"></div></div>
-    <div id="dash-cd"><div id="dash-cd-fill"></div></div>
-  </div>
-
-  <!-- ammo -->
-  <div class="hud-panel" id="ammo-panel">
-    <div id="weapon-name">PULSE RIFLE</div>
-    <div id="ammo-line">
-      <span id="ammo-mag">30</span><span id="ammo-reserve"> / 120</span>
-    </div>
-    <div id="reload-hint"></div>
-    <div id="reload-bar-outer"><div id="reload-bar"></div></div>
-    <div id="weapon-slots">
-      <div class="wslot active" id="slot-1">1 RIFLE</div>
-      <div class="wslot" id="slot-2">2 SHOTGUN</div>
-      <div class="wslot" id="slot-3">3 KATANA</div>
-    </div>
-  </div>
-
-  <!-- wave -->
-  <div class="hud-panel" id="wave-panel">
-    <div id="wave-title">WAVE // 波</div>
-    <div id="wave-line">1</div>
-    <div id="wave-enemies">HOSTILES: 0</div>
-  </div>
-
-  <!-- score -->
-  <div class="hud-panel" id="score-panel">
-    <div id="score-title">SCORE // 点</div>
-    <div id="score-num">0</div>
-  </div>
-
-  <div id="killfeed"></div>
-
-  <!-- crosshair -->
-  <div id="crosshair">
-    <div class="ch-t"></div><div class="ch-b"></div>
-    <div class="ch-l"></div><div class="ch-r"></div><div class="ch-c"></div>
-  </div>
-  <div id="hitmarker">
-    <div class="hm1"></div><div class="hm2"></div><div class="hm3"></div><div class="hm4"></div>
-  </div>
-  <div id="combo"></div>
-
-  <!-- scope (ADS) overlay -->
-  <div id="scope-overlay">
-    <div class="scope-lens">
-      <div class="scope-ring"></div>
-      <div class="scope-cross-h"></div>
-      <div class="scope-cross-v"></div>
-      <div class="scope-dot"></div>
-      <div class="scope-glare"></div>
-    </div>
-  </div>
-
-  <div id="banner">
-    <div id="banner-main">WAVE 1</div>
-    <div id="banner-sub">ONI INCOMING</div>
+<!-- ═══════════ boot / loader ═══════════ -->
+<div id="boot">
+  <div class="boot-inner">
+    <h1>DUST<span>STRIKE</span></h1>
+    <div class="boot-bar"><i></i></div>
+    <p>BUILDING THE AO · SIDI BOU ALI</p>
   </div>
 </div>
 
-<!-- ═══════════ START SCREEN ═══════════ -->
-<div class="screen" id="start-screen">
-  <div class="kanji-bg">鬼</div>
-  <div class="title-glitch" data-text="DUST STRIKE">DUST STRIKE</div>
-  <div class="subtitle">DESERT OPS // TACTICAL SHOOTER</div>
-  <button class="btn" id="btn-start">ENTER THE GRID</button>
-  <div class="controls-box">
-    <div><b>WASD</b> Move</div>          <div><b>MOUSE</b> Aim</div>
-    <div><b>LMB</b> Fire</div>           <div><b>RMB</b> Aim / Guard</div>
-    <div><b>CTRL+W / V</b> Sprint</div>  <div><b>SHIFT</b> Crouch</div>
-    <div><b>E</b> Dash</div>             <div><b>SPACE</b> Jump ×2</div>
-    <div><b>R</b> Reload</div>           <div><b>1 / 2 / 3</b> Weapons</div>
-    <div><b>F4</b> FPP / TPP</div>       <div><b>Q</b> Quick Katana</div>
-    <div><b>ESC / P</b> Pause</div>
+<!-- ═══════════ HUD ═══════════ -->
+<div id="hud" class="hidden">
+
+  <!-- top score bar -->
+  <header class="hud-top">
+    <div class="team-panel alpha">
+      <span class="tag">ALPHA</span>
+      <b id="score-alpha">0</b>
+      <div class="bar"><i id="bar-alpha"></i></div>
+    </div>
+    <div class="match-mid">
+      <div id="match-timer">00:00</div>
+      <div id="match-target">FIRST TO 75</div>
+    </div>
+    <div class="team-panel bravo">
+      <span class="tag">BRAVO</span>
+      <b id="score-bravo">0</b>
+      <div class="bar"><i id="bar-bravo"></i></div>
+    </div>
+  </header>
+
+  <!-- minimap -->
+  <aside class="hud-map">
+    <div class="map-frame">
+      <canvas id="minimap" width="190" height="190"></canvas>
+    </div>
+    <div id="zone-name">ALPHA BASE</div>
+    <div id="fps">-- FPS</div>
+  </aside>
+
+  <!-- killfeed -->
+  <section id="killfeed"></section>
+
+  <!-- compass -->
+  <canvas id="compass" width="520" height="46"></canvas>
+
+  <!-- damage direction arcs -->
+  <canvas id="arcs-canvas"></canvas>
+
+  <!-- crosshair / hitmarker / scope -->
+  <div id="crosshair"><i class="p1"></i><i class="p2"></i><i class="p3"></i><i class="p4"></i><i class="dot"></i></div>
+  <div id="hitmarker"><i></i><i></i><i></i><i></i></div>
+
+  <div id="scope">
+    <div class="scope-vig"></div>
+    <div class="scope-ring"></div>
+    <div class="scope-cross v"></div>
+    <div class="scope-cross h"></div>
+    <div class="scope-notch n1"></div>
+    <div class="scope-notch n2"></div>
+    <div class="scope-notch n3"></div>
+    <div class="scope-notch n4"></div>
+    <div class="scope-notch n5"></div>
+    <div class="scope-notch n6"></div>
+    <div class="scope-notch n7"></div>
+    <div class="scope-notch n8"></div>
+  </div>
+
+  <!-- breath / reload -->
+  <div id="breath-meter"><span class="lbl">HOLD BREATH <i>L-CTRL</i></span><div class="track"><b id="breath-fill"></b></div></div>
+  <div id="reload-bar"><div class="track"><b id="reload-fill"></b></div><span>RELOADING</span></div>
+  <div id="reload-hint">PRESS <b>R</b> TO RELOAD</div>
+
+  <!-- announcement + elimination -->
+  <div id="announce">
+    <div id="announce-main"></div>
+    <div id="announce-sub"></div>
+  </div>
+  <div id="eliminated"></div>
+
+  <!-- bottom left: vitals -->
+  <footer class="hud-left">
+    <div class="vitals">
+      <div class="hp-ring">
+        <svg viewBox="0 0 100 100"><circle class="bg" cx="50" cy="50" r="42"></circle><circle class="fg" cx="50" cy="50" r="42"></circle></svg>
+        <div class="hp-inner"><b id="hp-num">100</b><span>HP</span></div>
+      </div>
+      <div class="hp-bar"><i id="hp-fill"></i></div>
+    </div>
+  </footer>
+
+  <!-- bottom right: weapon -->
+  <footer class="hud-right">
+    <div class="ammo-panel">
+      <div class="wpn">
+        <span id="weapon-class">RIFLE</span>
+        <b id="weapon-name">M4A1</b>
+      </div>
+      <div class="mag-pips" id="mag-pips"></div>
+      <div class="counter">
+        <b id="ammo-mag">30</b>
+        <i id="ammo-reserve">/ 180</i>
+      </div>
+      <div class="nades" id="nades"></div>
+    </div>
+  </footer>
+
+  <!-- lock hint -->
+  <div id="lock-hint">CLICK TO CAPTURE MOUSE</div>
+
+  <div id="hurt-flash"></div>
+
+  <!-- killcam -->
+  <div id="killcam">
+    <div class="kc-badge">KILLCAM</div>
+    <div class="kc-block">
+      <div class="kc-row"><span>KILLED BY</span><b id="kc-killer">VOLKOV</b></div>
+      <div class="kc-row"><span>WEAPON</span><b id="kc-weapon">L96A1</b></div>
+      <div class="kc-row"><span>DISTANCE</span><b id="kc-dist">84 M</b></div>
+    </div>
+    <div id="respawn-timer"></div>
+    <div class="kc-skip"><b>SPACE</b> OR <b>LEFT CLICK</b> — SKIP AND RESPAWN</div>
+  </div>
+</div>
+
+<!-- ═══════════ MAIN MENU ═══════════ -->
+<div id="menu" class="screen on">
+  <div class="scrim"></div>
+  <div class="menu-wrap">
+    <header class="brand">
+      <h1>DUST<span>STRIKE</span></h1>
+      <p>OPERATION SIDI BOU ALI · MEDITERRANEAN THEATRE · <b id="menu-version">v2.0</b></p>
+    </header>
+
+    <div class="panels">
+      <section class="panel">
+        <h2>GAME MODE</h2>
+        <div class="opts" id="opt-mode"></div>
+      </section>
+
+      <section class="panel">
+        <h2>OPERATOR CLASS</h2>
+        <div class="opts tall" id="opt-class"></div>
+      </section>
+
+      <section class="panel">
+        <h2>MATCH SETUP</h2>
+        <div class="rows">
+          <div class="row" id="row-teamsize"></div>
+          <div class="row" id="row-difficulty"></div>
+          <div class="row" id="row-killlimit"></div>
+          <div class="row" id="row-duration"></div>
+        </div>
+      </section>
+    </div>
+
+    <div class="cta">
+      <button id="btn-start" class="big">DEPLOY</button>
+      <button id="btn-settings">SETTINGS</button>
+      <button id="btn-controls">CONTROLS</button>
+    </div>
+    <div class="foot">WASD MOVE · SHIFT SPRINT · CTRL CROUCH · RMB AIM · R RELOAD · G FRAG · 1 2 3 SLOTS · ESC PAUSE</div>
+  </div>
+</div>
+
+<!-- ═══════════ SETTINGS ═══════════ -->
+<div id="settings" class="screen">
+  <div class="scrim"></div>
+  <div class="sheet">
+    <h2>SETTINGS</h2>
+    <div id="settings-body"></div>
+    <div class="sheet-cta">
+      <button data-close="menu">BACK</button>
+      <button data-close="pause">BACK TO PAUSE</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ CONTROLS ═══════════ -->
+<div id="controls" class="screen">
+  <div class="scrim"></div>
+  <div class="sheet">
+    <h2>CONTROLS</h2>
+    <div id="controls-body"></div>
+    <div class="sheet-cta">
+      <button data-close="menu">BACK</button>
+      <button data-close="pause">BACK TO PAUSE</button>
+    </div>
   </div>
 </div>
 
 <!-- ═══════════ PAUSE ═══════════ -->
-<div class="screen hidden" id="pause-screen">
-  <div class="kanji-bg">休</div>
-  <div class="title-glitch" data-text="PAUSED" style="font-size: clamp(30px,6vw,60px);">PAUSED</div>
-  <div class="subtitle">SYSTEM HALTED</div>
-  <button class="btn" id="btn-resume">RESUME</button>
-</div>
-
-<!-- ═══════════ GAME OVER ═══════════ -->
-<div class="screen hidden" id="gameover">
-  <div class="kanji-bg">死</div>
-  <div class="title-glitch" data-text="YOU DIED" style="font-size: clamp(34px,7vw,72px); text-shadow: 0 0 20px #ff2d4d, 0 0 60px rgba(255,45,77,.5);">YOU DIED</div>
-  <div class="subtitle">YOU WERE ELIMINATED</div>
-  <div class="stats">
-    <div class="stat"><div class="v" id="final-wave">1</div><div class="k">WAVE</div></div>
-    <div class="stat"><div class="v" id="final-kills">0</div><div class="k">KILLS</div></div>
-    <div class="stat"><div class="v" id="final-score">0</div><div class="k">SCORE</div></div>
-    <div class="stat"><div class="v" id="final-accuracy">0%</div><div class="k">ACCURACY</div></div>
+<div id="pause" class="screen">
+  <div class="scrim"></div>
+  <div class="sheet narrow">
+    <h2>PAUSED</h2>
+    <p class="sub">Squad standing by. Take your time, operator.</p>
+    <div class="sheet-cta col">
+      <button id="btn-resume" class="big">RESUME</button>
+      <button id="btn-pause-settings">SETTINGS</button>
+      <button id="btn-quit">QUIT TO MENU</button>
+    </div>
   </div>
-  <button class="btn" id="btn-restart">RETRY // 再挑戦</button>
 </div>
 
-<div id="loading">
-  <div class="t">LOADING NEON GRID</div>
-  <div class="bar"><div></div></div>
+<!-- ═══════════ RESULTS ═══════════ -->
+<div id="results">
+  <div class="scrim"></div>
+  <div class="sheet">
+    <h2 id="res-title" class="win">VICTORY</h2>
+    <p class="sub" id="res-sub">ALPHA 75 — 42 BRAVO</p>
+    <div class="stats">
+      <div><span>KILLS</span><b id="res-kills">0</b></div>
+      <div><span>HEADSHOTS</span><b id="res-heads">0</b></div>
+      <div><span>DEATHS</span><b id="res-deaths">0</b></div>
+      <div><span>K / D</span><b id="res-kd">0.00</b></div>
+      <div><span>SCORE</span><b id="res-score">0</b></div>
+    </div>
+    <div class="sheet-cta">
+      <button id="btn-again">REDEPLOY</button>
+      <button id="btn-results-menu">MAIN MENU</button>
+    </div>
+  </div>
 </div>
-<div id="error-msg"></div>
 
-<script type="module" src="main.js?v=11"></script>
+<script type="module" src="./src/main.js"></script>
 </body>
 </html>
