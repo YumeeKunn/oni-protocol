@@ -130,7 +130,7 @@ export function makeSand() {
 
 export function makeCobble() {
   const map = canvasOf(512, 512, (c, w, h) => {
-    c.fillStyle = '#6d6459'; c.fillRect(0, 0, w, h);
+    c.fillStyle = '#5d554b'; c.fillRect(0, 0, w, h);
     const cell = 42;
     for (let row = 0, y = 0; y < h; y += cell * 0.86, row++) {
       const off = (row % 2) * cell * 0.5;
@@ -140,9 +140,9 @@ export function makeCobble() {
         const rx = cell * (0.40 + Math.random() * 0.06);
         const ry = cell * 0.36;
         const tone = 0.84 + Math.random() * 0.34;
-        c.fillStyle = `rgb(${148 * tone | 0},${138 * tone | 0},${124 * tone | 0})`;
+        c.fillStyle = `rgb(${108 * tone | 0},${102 * tone | 0},${93 * tone | 0})`;
         c.beginPath(); c.ellipse(cx, cy, rx, ry, (Math.random() - .5) * 0.35, 0, 7); c.fill();
-        c.fillStyle = `rgba(255,245,230,${0.06 + Math.random() * 0.08})`;
+        c.fillStyle = `rgba(240,232,214,${0.03 + Math.random() * 0.05})`;
         c.beginPath(); c.ellipse(cx - rx * 0.2, cy - ry * 0.35, rx * 0.7, ry * 0.35, 0, 0, 7); c.fill();
       }
     }
@@ -158,14 +158,14 @@ export function makeCobble() {
       for (let x = -cell; x < w + cell; x += cell) {
         const cx = x + off + cell / 2 + (Math.random() - 0.5) * 5;
         const cy = y + cell / 2 + (Math.random() - 0.5) * 4;
-        c.fillStyle = `rgb(${190 + Math.random() * 45 | 0},${190 + Math.random() * 45 | 0},${190 + Math.random() * 45 | 0})`;
+        c.fillStyle = `rgb(${150 + Math.random() * 40 | 0},${150 + Math.random() * 40 | 0},${150 + Math.random() * 40 | 0})`;
         c.beginPath(); c.ellipse(cx, cy, cell * 0.4, cell * 0.36, 0, 0, 7); c.fill();
       }
     }
     speckle(c, w, h, 2500, 0.25, true);
   }, false);
   const kit = { map, bump: linear(bump) };
-  kit.bumpNormal = normalFromCanvas(bump, 1.9);
+  kit.bumpNormal = normalFromCanvas(bump, 0.85);
   return kit;
 }
 

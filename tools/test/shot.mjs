@@ -1,77 +1,112 @@
-// ═══════════════ Quick shot: one screenshot of a live match ═══════════════
-// usage: node tools/test/shot.mjs --out /tmp/opencode/s.png [--class assault] [--mode survival]
-//        [--wait 6] [--ads 1] [--fire 1] [--holdbreath 1] [--dist 18] [--spec] [--pos "0,34"]
-import http from 'node:http';
-import fs from 'node:fs';
+// ═══════════════ SHOT — headless screenshot rig (puppeteer-core + SwiftShader) ═══════════════
+// Usage: node tools/test/shot.mjs [--port 8099] [--out shots] [--views menu,hip,ads,lineup]
+import { createRequire } from 'node:module';
+import { ensureServer } from './_serve.mjs';
+import { mkdirSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import puppeteer from 'puppeteer-core';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.resolve(__dirname, '../..');
-const PORT = 8128 + Math.floor(Math.random() * 200);
-const args = process.argv.slice(2);
-const arg = (k, d) => { const i = args.indexOf('--' + k); return i >= 0 ? args[i + 1] : d; };
-const flag = k => args.includes('--' + k);
-const out = arg('out', '/tmp/opencode/shot.png');
-const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.ogg': 'audio/ogg', '.png': 'image/png' };
-const server = http.createServer((req, res) => {
-  const url = decodeURIComponent(req.url.split('?')[0]);
-  const file = path.join(ROOT, url === '/' ? 'index.html' : url);
-  if (!file.startsWith(ROOT) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); res.end('nf'); return; }
-  res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
-  fs.createReadStream(file).pipe(res);
-});
-await new Promise(r => server.listen(PORT, '127.0.0.1', r));
+const require = createRequire(import.meta.url);
+let puppeteer;
+try { puppeteer = require('puppeteer-core'); }
+catch { puppeteer = require('/home/yadav/pwtest/node_modules/puppeteer-core'); }
+const { existsSync } = await import('node:fs');
+const CHROME = [process.env.CHROME_PATH, '/snap/bin/chromium', '/home/yadav/.hermes/tools/chromium-1208/chrome-linux64/chrome', '/usr/bin/chromium', '/usr/bin/google-chrome']
+  .find(p => p && existsSync(p)) || '/snap/bin/chromium';
 
-const errors = [];
+const argv = process.argv.slice(2);
+const arg = (name, def) => {
+  const i = argv.indexOf('--' + name);
+  return i >= 0 ? argv[i + 1] : def;
+};
+const PORT = arg('port', '8099');
+await ensureServer(+PORT);
+const OUT = path.resolve(arg('out', 'shots'));
+const views = arg('views', 'menu,hip,ads,lineup').split(',');
+mkdirSync(OUT, { recursive: true });
+
 const browser = await puppeteer.launch({
-  executablePath: process.env.CHROME_PATH || '/snap/bin/chromium',
-  headless: 'shell',
-  args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
-         '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
-         '--window-size=1280,720', '--mute-audio'],
+  executablePath: CHROME,
+  headless: true,
+  args: [
+    '--no-sandbox', '--disable-dev-shm-usage',
+    '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
+    '--window-size=1280,720', '--hide-scrollbars',
+  ],
   defaultViewport: { width: 1280, height: 720 },
 });
 const page = await browser.newPage();
-page.on('console', m => { if (m.type() === 'error') errors.push('[console] ' + m.text()); });
-page.on('pageerror', e => errors.push('PAGEERROR: ' + (e && e.message || e)));
-await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'load', timeout: 60000 });
-await page.waitForFunction(() => window.__game && window.__game.booted, { timeout: 60000 });
+const errors = [];
+page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+page.on('pageerror', e => errors.push('pageerror: ' + e.message));
 
-await page.evaluate((o) => {
-  const g = window.__game;
-  document.getElementById('menu').classList.remove('on');
-  document.getElementById('hud').classList.add('on');
-  g.inputLocked = false;
-  g.beginAudio();
-  g.startMatch({ mode: o.mode, classId: o.class, difficulty: o.diff });
-  g.debugFast(3);
-  if (o.ads) { g.weapons.setADS?.(true); g.input.mouse.right = true; }
-}, { mode: arg('mode', 'survival'), class: arg('class', 'assault'), diff: arg('diff', 'regular'), ads: flag('ads') });
+await page.goto(`http://127.0.0.1:${PORT}/index.html`, { waitUntil: 'load' });
+await page.waitForFunction('window.__game && window.__game.booted', { timeout: 90000 });
+await new Promise(r => setTimeout(r, 1200));
 
-if (flag('dist')) await page.evaluate(d => window.__game.debugSpawn(3, d), parseFloat(arg('dist', '18')));
-if (flag('spec')) await page.evaluate(() => window.__game.debugSpawn(1, 40));
+const shot = async (name) => {
+  await page.screenshot({ path: path.join(OUT, name + '.png') });
+  console.log('  shot →', name + '.png');
+};
+const wait = ms => new Promise(r => setTimeout(r, ms));
 
-const wait = parseFloat(arg('wait', '4'));
-await page.evaluate(async (w) => {
-  const g = window.__game;
-  const step = 1 / 60, n = Math.round(w / step);
-  for (let i = 0; i < n; i++) g.debugFast(step, step);
-}, wait);
+for (const v of views) {
+  if (v === 'menu') {
+    await wait(600);
+    await shot('menu');
+  } else if (v === 'hip' || v === 'ads' || v === 'lineup' || v === 'world') {
+    // start a match without pointer lock
+    await page.evaluate(() => {
+      const g = window.__game;
+      g.menus.hide();
+      g.startMatch({ mode: 'tdm', classId: 'assault', teamsize: 4, difficulty: 'regular', killlimit: 50, duration: 10 });
+      g.input.exitLock();
+      document.getElementById('lock-hint')?.classList.remove('on');
+    });
+    await wait(900);
+    // place the player somewhere photogenic, facing the souk
+    await page.evaluate(() => {
+      const g = window.__game;
+      g.player.reset({ x: 0, z: 30, yaw: 0 });
+      g.player.pitch = -0.02;
+    });
+    await wait(400);
+    if (v === 'hip') {
+      await page.evaluate(() => { window.__game.weapons.adsTarget = 0; });
+      await wait(700);
+      await shot('hip');
+    }
+    if (v === 'ads') {
+      await page.evaluate(() => { window.__game.input.mouse.right = true; });
+      await wait(1400);
+      await shot('ads');
+      await page.evaluate(() => { window.__game.input.mouse.right = false; });
+    }
+    if (v === 'lineup') {
+      // line up three operators in front of the player for model/animation checks
+      await page.evaluate(() => {
+        const g = window.__game;
+        g.debugSpawn(3, 6, 'bravo');
+      });
+      await wait(1500);
+      await shot('lineup');
+    }
+    if (v === 'world') {
+      await page.evaluate(() => {
+        const g = window.__game;
+        g.player.yaw = Math.PI * 0.25;
+        g.player.pos.set(20, 0, 20);
+      });
+      await wait(700);
+      await shot('world');
+    }
+  }
+}
 
-if (flag('fire')) await page.evaluate(() => { window.__game.input.mouse.left = true; });
-if (flag('holdbreath')) await page.evaluate(() => { window.__game.input.keys['ControlLeft'] = true; });
-await new Promise(r => setTimeout(r, flag('ads') || flag('spec') ? 2500 : 900));
-if (flag('fire')) await new Promise(r => setTimeout(r, 1200));
-
-await page.screenshot({ path: out });
-const info = await page.evaluate(() => {
-  const g = window.__game;
-  return { fps: g.fps ? +g.fps.toFixed(1) : null, calls: g.renderer.info.render.calls, w: g.weapons.stateSnapshot(), player: g.snapshot().player };
-});
-console.log('shot →', out);
-console.log(JSON.stringify(info));
-if (errors.length) { console.log('ERRORS:'); errors.slice(0, 8).forEach(e => console.log('  ' + e)); }
+const snap = await page.evaluate(() => window.__game.snapshot());
+console.log('snapshot:', JSON.stringify({ fps: snap.fps, calls: snap.renderer.calls, tris: snap.renderer.tris, colliders: snap.world.colliders }));
+if (errors.length) {
+  console.log('CONSOLE ERRORS:');
+  for (const e of errors.slice(0, 20)) console.log('  ', e);
+  process.exitCode = 1;
+} else console.log('no console errors');
 await browser.close();
-server.close();

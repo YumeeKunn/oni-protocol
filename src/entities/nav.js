@@ -5,24 +5,31 @@ import { clamp } from '../core/utils.js';
 
 export const CELL = 1.5;
 
-function colliderBlocks(c, px, pz, y0, y1) {
-  // yawed box test in the collider's local frame
+/**
+ * Does this collider block the spot (px,pz) for an agent of `radius`?
+ * The transform is the inverse of the mesh's R_y(yaw) — the same convention the
+ * physics uses — so the grid and the collision agree about where a wall is.
+ * The agent radius is baked in as well: a 34 cm wall sitting between two cell
+ * centres must still block, otherwise A* happily routes straight through it.
+ */
+function colliderBlocks(c, px, pz, y0, y1, radius) {
   const top = c.y + c.hy, bot = c.y - c.hy;
   if (top <= y0 + 0.12 || bot >= y1) return false;
+  if (c.climb) return false;                 // stairs are walkable, not blocking
   let dx = px - c.x, dz = pz - c.z;
   if (c.yaw) {
-    const cs = Math.cos(-c.yaw), sn = Math.sin(-c.yaw);
+    const cs = Math.cos(c.yaw), sn = Math.sin(c.yaw);
     const rx = dx * cs - dz * sn;
     const rz = dx * sn + dz * cs;
     dx = rx; dz = rz;
   }
-  return Math.abs(dx) <= c.hx && Math.abs(dz) <= c.hz;
+  return Math.abs(dx) <= c.hx + radius && Math.abs(dz) <= c.hz + radius;
 }
 
 function surfaceAt(c, px, pz) {
   let dx = px - c.x, dz = pz - c.z;
   if (c.yaw) {
-    const cs = Math.cos(-c.yaw), sn = Math.sin(-c.yaw);
+    const cs = Math.cos(c.yaw), sn = Math.sin(c.yaw);
     const rx = dx * cs - dz * sn;
     const rz = dx * sn + dz * cs;
     dx = rx; dz = rz;
@@ -74,33 +81,17 @@ export function buildNav(colliders, half, groundHeight, opts = {}) {
       let ok = true;
       if (list) {
         for (const c of list) {
-          if (colliderBlocks(c, w.x, w.z, g + 0.08, g + bodyH)) { ok = false; break; }
+          if (colliderBlocks(c, w.x, w.z, g + 0.08, g + bodyH, radius)) { ok = false; break; }
         }
       }
       walk[i] = ok ? 1 : 0;
     }
   }
 
-  // agent radius: erode walkable cells that are too close to blocked cells
-  const rCells = Math.max(1, Math.round((radius + 0.22) / cell));
-  const walkEroded = new Uint8Array(walk);
-  for (let iz = 0; iz < n; iz++) {
-    for (let ix = 0; ix < n; ix++) {
-      if (!walk[idx(ix, iz)]) continue;
-      let blocked = false;
-      for (let dz = -rCells; dz <= rCells && !blocked; dz++) {
-        for (let dx = -rCells; dx <= rCells; dx++) {
-          const jx = ix + dx, jz = iz + dz;
-          if (jx < 0 || jz < 0 || jx >= n || jz >= n || !walk[idx(jx, jz)]) { blocked = true; break; }
-        }
-      }
-      if (blocked) walkEroded[idx(ix, iz)] = 0;
-    }
-  }
-  // never erode everything: keep a fallback of the raw grid
-  let count = 0;
-  for (let i = 0; i < walkEroded.length; i++) count += walkEroded[i];
-  const nav = count > 40 ? walkEroded : walk;
+  // The agent radius is already baked into colliderBlocks(), so no extra cell
+  // erosion here — eroding a full 1.5 m cell around every wall would seal the
+  // 2 m alleys the map is built around.
+  const nav = walk;
 
   // ── A* ──
   const gScore = new Float32Array(n * n);
@@ -263,6 +254,24 @@ export function buildNav(colliders, half, groundHeight, opts = {}) {
       if (path) return { goal: { x: gx, z: gz }, path };
     }
     return null;
+  };
+
+  /** closest walkable cell centre to (x,z) within r metres — used to unstick bots */
+  nav.nearestWalkable = (x, z, r = 8) => {
+    const { ix, iz } = toCell(x, z);
+    const maxR = Math.max(1, Math.ceil(r / cell));
+    let best = null, bestD = Infinity;
+    for (let dz = -maxR; dz <= maxR; dz++) {
+      for (let dx = -maxR; dx <= maxR; dx++) {
+        const jx = ix + dx, jz = iz + dz;
+        if (jx < 0 || jz < 0 || jx >= n || jz >= n) continue;
+        if (!nav[idx(jx, jz)]) continue;
+        const p = toWorld(jx, jz);
+        const d = (p.x - x) ** 2 + (p.z - z) ** 2;
+        if (d < bestD) { bestD = d; best = p; }
+      }
+    }
+    return best;
   };
 
   /** random walkable point near (x,z) within r */

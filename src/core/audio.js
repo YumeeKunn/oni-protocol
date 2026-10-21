@@ -159,7 +159,7 @@ function tone(f0, f1, dur, type = 'sine', vol = 0.3, when = 0, dest = null) {
   o.start(t0); o.stop(t0 + dur + 0.05);
 }
 
-function burst(dur, freq, q, vol, { type = 'bandpass', when = 0, slide = null, dest = null } = {}) {
+function burst(dur, freq, q, vol, { type = 'bandpass', when = 0, slide = null, dest = null, pan = 0 } = {}) {
   const src = ctx.createBufferSource();
   src.buffer = noise(dur);
   const f = ctx.createBiquadFilter();
@@ -170,7 +170,12 @@ function burst(dur, freq, q, vol, { type = 'bandpass', when = 0, slide = null, d
   g.gain.setValueAtTime(0.0001, t0);
   g.gain.exponentialRampToValueAtTime(Math.max(0.0002, vol), t0 + 0.005);
   g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-  src.connect(f).connect(g); g.connect(dest || dryBus);
+  let tail = f;
+  if (pan && ctx.createStereoPanner) {
+    const p = ctx.createStereoPanner(); p.pan.value = Math.max(-1, Math.min(1, pan));
+    tail.connect(p); tail = p;
+  }
+  src.connect(tail).connect(g); g.connect(dest || dryBus);
   if (reverbBus) g.connect(reverbBus);
   src.start(t0); src.stop(t0 + dur + 0.05);
 }
@@ -249,6 +254,18 @@ export const sfx = {
 
   dryFire() { if (ready) { tone(1500, 700, 0.035, 'square', 0.13); burst(0.03, 3200, 2, 0.1); } },
 
+  /**
+   * Supersonic crack of a round passing close by. pan = -1..1 (which ear),
+   * dist = metres from the listener.
+   */
+  whiz(pan = 0, dist = 0) {
+    if (!ready) return;
+    const v = Math.max(0.08, 1 / (1 + dist * 0.22));
+    burst(0.055, 3600, 1.1, 0.26 * v, { slide: 1100, pan });
+    tone(2300, 640, 0.04, 'triangle', 0.09 * v);
+    burst(0.03, 900, 2.4, 0.07 * v, { type: 'lowpass', when: 0.02, pan });
+  },
+
   explosion(big = false) {
     if (!ready) return;
     const d = big ? 1.1 : 0.6;
@@ -258,7 +275,7 @@ export const sfx = {
     if (big) burst(0.9, 180, 0.3, 0.24, { type: 'lowpass', slide: 60, when: 0.16 });
   },
 
-  impact(mat = 'concrete', dist = 0) {
+  impact(mat = 'concrete', dist = 0, pan = 0) {
     if (!ready) return;
     const v = Math.max(0.03, 1 / (1 + dist * dist * 0.01));
     if (mat === 'flesh') { burst(0.09, 420, 1.1, 0.4 * v, { type: 'lowpass' }); tone(180, 70, 0.09, 'sine', 0.24 * v); }
@@ -267,7 +284,7 @@ export const sfx = {
     else { burst(0.06, 1800, 1.2, 0.3 * v, { slide: 600 }); tone(420, 150, 0.05, 'square', 0.1 * v); }
   },
 
-  ricochet(dist = 0) {
+  ricochet(dist = 0, pan = 0) {
     if (!ready) return;
     const v = Math.max(0.04, 1 / (1 + dist * dist * 0.008));
     const f = 1600 + Math.random() * 2600;

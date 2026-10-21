@@ -46,14 +46,65 @@ export class ColliderGrid {
   }
 }
 
-/** world-space point → collider local space */
-function local(c, x, z) {
-  let dx = x - c.x, dz = z - c.z;
+/**
+ * world-space point → collider local space.
+ * three.js rotates a mesh by R_y(yaw), so the inverse is R_y(-yaw):
+ *   lx =  cos(yaw)·dx - sin(yaw)·dz
+ *   lz =  sin(yaw)·dx + cos(yaw)·dz
+ * Getting the handedness wrong here mirrors every rotated collider, which is how
+ * you end up walking through a wall that visually is not there.
+ */
+export function local(c, x, z) {
+  const dx = x - c.x, dz = z - c.z;
   if (c.yaw) {
-    const cs = Math.cos(-c.yaw), sn = Math.sin(-c.yaw);
+    const cs = Math.cos(c.yaw), sn = Math.sin(c.yaw);
     return [dx * cs - dz * sn, dx * sn + dz * cs];
   }
   return [dx, dz];
+}
+
+/** one vertical hop: land on the highest supporting top, or bonk a ceiling */
+function stepVertical(body, grid, groundHeight, res, prevY, step) {
+  const { pos, vel } = body;
+  const r = body.radius, h = body.height;
+  const gy = groundHeight ? groundHeight(pos.x, pos.z) : 0;
+  const cols = grid.query(pos.x, pos.z, r + 0.1, []);
+  if (vel.y <= 0) {
+    let bestTop = gy;
+    for (const c of cols) {
+      const top = c.y + c.hy;
+      if (top > prevY + 0.001 || top < pos.y - step - 0.35) continue;
+      const [lx, lz] = local(c, pos.x, pos.z);
+      if (Math.abs(lx) > c.hx + r * 0.85 || Math.abs(lz) > c.hz + r * 0.85) continue;
+      if (top > bestTop) bestTop = top;
+    }
+    if (bestTop >= pos.y) {
+      res.landSpeed = Math.max(res.landSpeed, Math.abs(vel.y));
+      pos.y = bestTop;
+      vel.y = 0;
+      res.grounded = true;
+    }
+    return true;
+  }
+  // rising: shortest overlap from below
+  for (const c of cols) {
+    const bot = c.y - c.hy;
+    if (bot < pos.y + h - 0.001) continue;
+    const [lx, lz] = local(c, pos.x, pos.z);
+    if (Math.abs(lx) > c.hx + r * 0.85 || Math.abs(lz) > c.hz + r * 0.85) continue;
+    pos.y = bot - h - 0.001;
+    vel.y = 0;
+    res.ceiling = true;
+    return true;
+  }
+  return true;
+}
+
+/** local space → world space contact normal for a yawed collider */
+function worldNormal(c, lx, lz, axis) {
+  const cs = Math.cos(c.yaw || 0), sn = Math.sin(c.yaw || 0);
+  if (axis === 'x') { const s = Math.sign(lx) || 1; return [s * cs, -s * sn]; }
+  const s = Math.sign(lz) || 1; return [s * sn, s * cs];
 }
 
 /**
@@ -70,47 +121,30 @@ export function moveBody(body, dt, grid, groundHeight, o = {}) {
   const prevBottom = pos.y;
 
   // ── vertical ──
-  pos.y += vel.y * dt;
-  let gy = groundHeight ? groundHeight(pos.x, pos.z) : 0;
-  const cols = grid.query(pos.x, pos.z, r + 0.1, list);
-  if (vel.y <= 0) {
-    let bestTop = gy;
-    for (const c of cols) {
-      const top = c.y + c.hy;
-      if (top > pos.y + 0.001 || top < pos.y - step - 0.35) continue;
-      const [lx, lz] = local(c, pos.x, pos.z);
-      if (Math.abs(lx) > c.hx + r * 0.85 || Math.abs(lz) > c.hz + r * 0.85) continue;
-      if (top > bestTop) bestTop = top;
-    }
-    if (bestTop >= pos.y && prevBottom >= bestTop - Math.max(0.35, step + 0.1)) {
-      res.landSpeed = Math.abs(vel.y);
-      pos.y = bestTop;
-      vel.y = 0;
-      res.grounded = true;
-    } else if (pos.y <= gy) {
-      res.landSpeed = Math.abs(vel.y);
-      pos.y = gy;
-      vel.y = 0;
-      res.grounded = true;
-    }
-  } else if (vel.y > 0) {
-    // ceiling check: shortest overlap from above
-    for (const c of cols) {
-      const bot = c.y - c.hy;
-      if (bot < pos.y + h || bot > pos.y + h + vel.y * dt + 0.2) continue;
-      const [lx, lz] = local(c, pos.x, pos.z);
-      if (Math.abs(lx) > c.hx + r * 0.85 || Math.abs(lz) > c.hz + r * 0.85) continue;
-      pos.y = bot - h - 0.001;
-      vel.y = 0;
-      res.ceiling = true;
+  // split long falls into short hops: at terminal velocity a single 60 ms step
+  // can skip straight past a thin roof / crate top and drop the body inside it
+  let remainY = vel.y * dt;
+  const maxHop = 0.22;
+  const hops = Math.min(24, Math.max(1, Math.ceil(Math.abs(remainY) / maxHop)));
+  const hopY = remainY / hops;
+  for (let s = 0; s < hops; s++) {
+    const before = pos.y;
+    pos.y += hopY;
+    if (!stepVertical(body, grid, groundHeight, res, before, step)) {
+      pos.y = before;
       break;
     }
+    if (res.grounded || res.ceiling) break;
   }
+  let gy = groundHeight ? groundHeight(pos.x, pos.z) : 0;
 
   // ── depenetration: if we start inside geometry, exit through the nearest face ──
+  // The whole overlap is resolved in one move: resolving half of it and then
+  // re-picking the "nearest face" flips sides and leaves the body jittering inside
+  // the box (that was the old wall-glitch).
   for (let it = 0; it < 3; it++) {
     const cols0 = grid.query(pos.x, pos.z, r + 0.2, list);
-    let bestPen = 0, bdx = 0, bdz = 0, stepped = false;
+    let bestPen = 0, bnx = 0, bnz = 0, stepped = false;
     for (const c of cols0) {
       const top = c.y + c.hy, bot = c.y - c.hy;
       if (top <= pos.y + 0.02 || bot >= pos.y + h) continue;
@@ -123,59 +157,63 @@ export function moveBody(body, dt, grid, groundHeight, o = {}) {
       const pen = Math.min(ex, ez);
       if (pen > bestPen) {
         bestPen = pen;
-        bdx = ex < ez ? (Math.sign(lx) || 1) : 0;
-        bdz = ez <= ex ? (Math.sign(lz) || 1) : 0;
+        const [nx, nz] = worldNormal(c, lx, lz, ex <= ez ? 'x' : 'z');
+        bnx = nx; bnz = nz;
       }
     }
-    if (bestPen <= 0.015) break;
-    const move = Math.min(bestPen, 0.35);
-    pos.x += bdx * move;
-    pos.z += bdz * move;
+    if (bestPen <= 0.005) break;
+    const move = Math.min(bestPen + 0.002, 1.6);
+    pos.x += bnx * move;
+    pos.z += bnz * move;
     if (stepped) break;
   }
 
-  // ── horizontal, one axis at a time (gives clean wall sliding) ──
+  // ── horizontal: axis separated (clean wall sliding) and sub-stepped (no tunnelling) ──
   for (const axis of ['x', 'z']) {
     const d = vel[axis] * dt;
     if (Math.abs(d) < 1e-6) continue;
-    pos[axis] += d;
-    let guard = 0;
-    for (;;) {
-      let hit = null, push = 1e9, dir = 1, stepUp = null;
-      const cols2 = grid.query(pos.x, pos.z, r + 0.4, list);
-      for (const c of cols2) {
-        const top = c.y + c.hy, bot = c.y - c.hy;
-        if (top <= pos.y + 0.02 || bot >= pos.y + h) continue;
-        const [lx, lz] = local(c, pos.x, pos.z);
-        const ox = c.hx + r - Math.abs(lx);
-        const oz = c.hz + r - Math.abs(lz);
-        if (ox <= 0 || oz <= 0) continue;
-        const localOther = axis === 'x' ? lz : lx;
-        if (Math.abs(localOther) >= (axis === 'x' ? c.hz : c.hx) + r - 1e-4) continue;
-        // step up over low obstacles
-        if (top - pos.y <= step + 0.02 && top - pos.y > -0.02) { if (stepUp === null || top > stepUp) stepUp = top; continue; }
-        // nearest face wins: exit direction comes from the collider's own frame
-        const near = axis === 'x' ? ox : oz;
-        if (near < push) {
-          hit = c;
-          push = near;
-          const off = axis === 'x' ? lx : lz;
-          dir = Math.sign(off) || (d > 0 ? -1 : 1);
+    // 0.14 m per hop: a 34 cm stucco wall can never be skipped at sprint speed
+    const hops = Math.min(12, Math.max(1, Math.ceil(Math.abs(d) / 0.14)));
+    const hopD = d / hops;
+    for (let s = 0; s < hops; s++) {
+      pos[axis] += hopD;
+      let guard = 0;
+      for (;;) {
+        let push = 0, nx = 0, nz = 0, stepUp = null;
+        const cols2 = grid.query(pos.x, pos.z, r + 0.4, list);
+        for (const c of cols2) {
+          const top = c.y + c.hy, bot = c.y - c.hy;
+          if (top <= pos.y + 0.02 || bot >= pos.y + h) continue;
+          const [lx, lz] = local(c, pos.x, pos.z);
+          const ox = c.hx + r - Math.abs(lx);
+          const oz = c.hz + r - Math.abs(lz);
+          if (ox <= 0 || oz <= 0) continue;
+          // step up over low obstacles
+          if (top - pos.y <= step + 0.02 && top - pos.y > -0.02) { if (stepUp === null || top > stepUp) stepUp = top; continue; }
+          const pen = Math.min(ox, oz);
+          if (pen > push) {
+            push = pen;
+            const [cx, cz] = worldNormal(c, lx, lz, ox <= oz ? 'x' : 'z');
+            nx = cx; nz = cz;
+          }
         }
+        if (stepUp !== null) { pos.y = stepUp; vel.y = Math.max(0, vel.y); }
+        if (push <= 0) break;
+        // push straight back out along the contact normal — this is what makes
+        // sliding on a rotated wall behave like the wall instead of the world axes
+        const amt = Math.min(push + 0.002, 0.4);
+        pos.x += nx * amt;
+        pos.z += nz * amt;
+        const into = vel.x * nx + vel.z * nz;
+        if (into < 0) { vel.x -= nx * into; vel.z -= nz * into; }
+        res.hitWall = true;
+        res.wallNormal.set(nx, 0, nz);
+        if (++guard > 3) break;
       }
-      if (stepUp !== null) { pos.y = stepUp; vel.y = 0; }
-      if (!hit) break;
-      // shallow contact → only undo the motion; deep overlap → slide out toward the nearest face
-      const back = Math.min(push, Math.max(Math.abs(d) + 0.01, Math.min(push * 0.5, 0.3)));
-      pos[axis] -= back * dir;
-      vel[axis] = 0;
-      res.hitWall = true;
-      res.wallNormal.set(axis === 'x' ? -dir : 0, 0, axis === 'z' ? -dir : 0);
-      if (++guard > 3) break;
     }
   }
 
-  // ── final ground snap + out of bounds clamp ──
+  // ── final ground snap ──
   gy = groundHeight ? groundHeight(pos.x, pos.z) : 0;
   if (!res.grounded && vel.y <= 0) {
     const cols3 = grid.query(pos.x, pos.z, r, list);
@@ -242,14 +280,9 @@ export function rayHit(grid, ox, oy, oz, dx, dy, dz, maxDist, out = {}) {
   const dzs = Math.abs(Math.abs(lz) - best.hz);
   const n = new THREE.Vector3();
   if (dys <= dxs && dys <= dzs) n.set(0, Math.sign(ly) || 1, 0);
-  else if (dxs <= dzs) {
-    const s = Math.sign(lx) || 1;
-    const cs = Math.cos(best.yaw || 0), sn = Math.sin(best.yaw || 0);
-    n.set(s * cs, 0, s * sn);
-  } else {
-    const s = Math.sign(lz) || 1;
-    const cs = Math.cos(best.yaw || 0), sn = Math.sin(best.yaw || 0);
-    n.set(-s * sn, 0, s * cs);
+  else {
+    const [nx, nz] = worldNormal(best, lx, lz, dxs <= dzs ? 'x' : 'z');
+    n.set(nx, 0, nz);
   }
   out.normal = n;
   return out;
@@ -260,7 +293,7 @@ export function rayBox(c, ox, oy, oz, dx, dy, dz) {
   let lx = ox - c.x, lz = oz - c.z;
   let ldx = dx, ldz = dz;
   if (c.yaw) {
-    const cs = Math.cos(-c.yaw), sn = Math.sin(-c.yaw);
+    const cs = Math.cos(c.yaw), sn = Math.sin(c.yaw);
     const rx = lx * cs - lz * sn, rz = lx * sn + lz * cs;
     const rdx = ldx * cs - ldz * sn, rdz = ldx * sn + ldz * cs;
     lx = rx; lz = rz; ldx = rdx; ldz = rdz;

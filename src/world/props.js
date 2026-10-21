@@ -53,6 +53,21 @@ function leafMat(B) {
 
 // window glass is its own untextured material — reusing a plaster map tints it muddy
 export const glassMat = B => (_glass ||= new THREE.MeshStandardMaterial({ color: 0x223037, roughness: 0.14, metalness: 0.55 }));
+
+// car paint — its own material, because tinting the dark 'metal' kit turned
+// every vehicle into a black blob
+const _carPaint = new Map();
+export function carPaintMat(tint, wreck = false) {
+  const key = `${tint}|${wreck ? 'w' : 'n'}`;
+  if (_carPaint.has(key)) return _carPaint.get(key);
+  const m = new THREE.MeshStandardMaterial({
+    color: tint,
+    metalness: wreck ? 0.16 : 0.38,
+    roughness: wreck ? 0.82 : 0.46,
+  });
+  _carPaint.set(key, m);
+  return m;
+}
 export const darkMat = B => (_dark ||= B.mat('stucco', { matOpts: { color: 0x2a2621, roughness: 0.95, normal: false } }));
 const terracottaMat = B => (_terracotta ||= B.mat('concrete', { matOpts: { color: 0xb06a44, roughness: 0.9 } }));
 
@@ -678,16 +693,20 @@ export function waterTower(B, x, z) {
   B.solid(x, h + 2.7, z, 1.5, 1.2, 1.5, 0, 'metal');
 }
 
-/** external stairway — colliders flagged climb so the step-up logic walks it */
+/**
+ * external stairway — colliders flagged climb so the step-up logic walks it.
+ * The tread runs along the direction of travel: cos/sin place the boxes, so the
+ * geometry has to be built (run, height, width) to match that travel axis.
+ */
 export function stairway(B, x, z, o = {}) {
   const steps = o.steps ?? 10, rise = o.rise ?? 0.42, run = o.run ?? 0.44, w = o.w ?? 1.5;
   const yaw = o.yaw || 0;
-  const dir = o.dir ?? 1;    // +1 climbs toward +z (rotated by yaw)
+  const dir = o.dir ?? 1;    // +1 climbs along (cos yaw, -sin yaw)
   for (let i = 0; i < steps; i++) {
     const t = dir * (i - (steps - 1) / 2) * run;
     const bx = x + Math.cos(yaw) * t;
     const bz = z - Math.sin(yaw) * t;
-    B.box(w, rise * (i + 1), run, o.mat || 'concrete', bx, 0, bz, yaw, { rep: 1.4, climb: true, tag: 'stone', matOpts: { color: 0xbdb6a4 } });
+    B.box(run, rise * (i + 1), w, o.mat || 'concrete', bx, 0, bz, yaw, { rep: 1.4, climb: true, tag: 'stone', matOpts: { color: 0xbdb6a4 } });
   }
 }
 
@@ -708,4 +727,167 @@ export function hangingSign(B, x, y, z, text, yaw) {
   m.castShadow = true;
   B.add(m);
   B.prop(boxGeo(0.7, 0.05, 0.05, 1), 'metal', x - Math.sin(yaw) * 0.35, y + 0.42, z - Math.cos(yaw) * 0.35, yaw, { cast: false, matOpts: { color: 0x2e2c28 } });
+}
+
+// ═══════════════ vehicles / drums / ruins ═══════════════
+
+/**
+ * Parked sedan — the CS/Standoff-style hard cover that breaks long sightlines.
+ * Body, greenhouse, glass band, wheels, bumpers, one collider.
+ */
+export function car(B, x, z, o = {}) {
+  const yaw = o.yaw ?? 0;
+  const tint = o.tint ?? pick([0xb0aa9c, 0x6d7f8c, 0x8f8560, 0x8a5048, 0x5f6f5c, 0x9c9a92]);
+  const paint = { color: tint, metal: 0.5, roughness: 0.42 };
+  const trim = { color: 0x2b2c2e, metal: 0.3, roughness: 0.6 };
+  const L = o.len ?? 4.35, W = 1.86;
+  const rust = o.wreck ? 0.72 : 0.42;
+  paint.roughness = rust;
+  paint.metal = o.wreck ? 0.2 : 0.5;
+  const cos = Math.cos(yaw), sin = Math.sin(yaw);
+  const at = (ax, az) => [x + cos * ax + sin * az, z - sin * ax + cos * az];
+
+  // chassis + fenders
+  const paintMat = carPaintMat(tint, o.wreck);
+  B.box(L, 0.6, W, 'metal', x, 0.28, z, yaw, { rep: 1.5, tag: 'metal', mat: paintMat });
+  B.box(L * 0.98, 0.12, W * 1.02, 'metal', x, 0.82, z, yaw, { rep: 1.4, solid: false, mat: paintMat });
+  // greenhouse
+  const [gx, gz] = at(-0.14, 0);
+  B.box(2.35, 0.6, W - 0.16, 'metal', gx, 0.9, gz, yaw, { rep: 1.2, solid: false, mat: paintMat });
+  B.box(2.1, 0.1, W - 0.26, 'metal', gx, 1.52, gz, yaw, { rep: 1.1, solid: false, mat: paintMat });
+  // glass: windscreen, backlight, side windows
+  const glass = glassMat(B);
+  const [wx, wz] = at(0.98, 0);
+  const w1 = B.prop(boxGeo(0.06, 0.5, W - 0.34, 1), 'metal', wx, 1.2, wz, yaw, { mat: glass, cast: false });
+  w1.rotation.z = 0.22;
+  const [bx2, bz2] = at(-1.24, 0);
+  const w2 = B.prop(boxGeo(0.06, 0.5, W - 0.34, 1), 'metal', bx2, 1.2, bz2, yaw, { mat: glass, cast: false });
+  w2.rotation.z = -0.24;
+  for (const s of [-1, 1]) {
+    const [sx, sz] = at(-0.14, s * (W / 2 - 0.1));
+    B.prop(boxGeo(2.1, 0.44, 0.05, 1), 'metal', sx, 1.16, sz, yaw, { mat: glass, cast: false });
+  }
+  // wheels (axle along the car's width)
+  const wheel = new THREE.CylinderGeometry(0.33, 0.33, 0.24, 12).rotateX(Math.PI / 2);
+  for (const ax of [1.42, -1.42]) {
+    for (const az of [W / 2 - 0.06, -(W / 2 - 0.06)]) {
+      const [px, pz] = at(ax, az);
+      B.prop(wheel.clone(), 'tyre', px, 0.33, pz, yaw);
+      const [hx, hz] = at(ax, az * 0.82);
+      B.prop(new THREE.CylinderGeometry(0.17, 0.17, 0.26, 10).rotateX(Math.PI / 2), 'metal', hx, 0.33, hz, yaw, { matOpts: trim, cast: false });
+    }
+  }
+  // bumpers + lamps
+  for (const ax of [L / 2 - 0.06, -(L / 2 - 0.06)]) {
+    const [px, pz] = at(ax, 0);
+    B.prop(boxGeo(0.16, 0.24, W * 0.96, 1), 'metal', px, 0.42, pz, yaw, { matOpts: trim, cast: false });
+  }
+  for (const s of [-1, 1]) {
+    const [px, pz] = at(L / 2 - 0.02, s * 0.62);
+    B.prop(boxGeo(0.05, 0.16, 0.32, 1), 'metal', px, 0.72, pz, yaw, { matOpts: { color: 0xf2ead2, emissive: 0x14100a, roughness: 0.3 }, cast: false });
+  }
+  // occasional door left open
+  if (o.wreck) {
+    const [dx2, dz2] = at(0.35, W / 2 + 0.18);
+    B.prop(boxGeo(1.1, 0.9, 0.08, 1), 'metal', dx2, 0.75, dz2, yaw + 0.75, { matOpts: paint });
+  }
+  B.solid(x, 0.62, z, L / 2, 0.62, W / 2, yaw, 'metal');
+  // worn sill line so the body reads as painted metal, not plastic
+  const [lx3, lz3] = at(0, W / 2 - 0.02);
+  B.prop(boxGeo(L * 0.86, 0.07, 0.03, 1), 'metal', lx3, 0.5, lz3, yaw, { matOpts: { color: 0x3a3128, roughness: 0.95 }, cast: false });
+  return { x, z, yaw };
+}
+
+/** oil drums: upright stack + one on its side */
+export function drumCluster(B, x, z, n = 3, o = {}) {
+  const tints = [0x8a5a3a, 0x5f6b52, 0x44566a, 0x7a6a44, 0x6b4a44];
+  for (let i = 0; i < n; i++) {
+    barrel(B, x + rand(-1.0, 1.0), z + rand(-1.0, 1.0), { tint: o.tint ?? pick(tints) });
+  }
+  if (o.tipped !== false) {
+    const g = new THREE.CylinderGeometry(0.31, 0.31, 0.92, 14).rotateZ(Math.PI / 2);
+    B.prop(g, 'metalRust', x + rand(-0.7, 0.7), 0.31, z + rand(-0.7, 0.7), rand(0, 6.28), { matOpts: { color: pick(tints) } });
+    B.solid(x, 0.31, z + 0.7, 0.46, 0.31, 0.31, 0, 'metal');
+  }
+}
+
+/** low walled planter with greenery — waist-high cover that still lets you shoot over it */
+export function planter(B, x, z, w = 2.6, d = 1.2, yaw = 0) {
+  B.box(w, 0.62, d, 'stucco', x, 0, z, yaw, { rep: 1.4, tag: 'stone', matOpts: { color: 0xc4bca6 } });
+  B.box(w - 0.24, 0.08, d - 0.24, 'concrete', x, 0.6, z, yaw, { rep: 1.2, solid: false, matOpts: { color: 0x4a3b2a } });
+  for (let i = 0; i < 3; i++) {
+    const t = (i - 1) * (w / 3.4);
+    const px = x + Math.cos(yaw) * t, pz = z - Math.sin(yaw) * t;
+    shrub(B, px, pz, rand(0.55, 0.95));
+  }
+}
+
+/**
+ * Old ruined building: three broken walls, a raised concrete deck you can hold,
+ * and an external stair up to it. This is the vertical play the map was missing.
+ */
+export function ruin(B, x, z, o = {}) {
+  const yaw = o.yaw ?? 0;
+  const w = o.w ?? 9.0, d = o.d ?? 8.0;
+  const h = o.h ?? 4.6;
+  const deckY = o.deckY ?? 3.2;
+  const mat = o.mat || 'stucco';
+  const tint = o.tint ?? 0xcbbfa4;
+  const cos = Math.cos(yaw), sin = Math.sin(yaw);
+  const at = (ax, az) => [x + cos * ax + sin * az, z - sin * ax + cos * az];
+  const t = 0.38;
+  const put = (ax, az, bw, bh, bd, yb, opts = {}) => {
+    const [px, pz] = at(ax, az);
+    return B.box(bw, bh, bd, mat, px, yb, pz, yaw, { rep: 2.2, tag: 'stone', matOpts: { color: tint }, ...opts });
+  };
+
+  // back wall — full height, a broken window punched out of the middle
+  put(0, -d / 2, w, h, t, 0);
+  put(0, -d / 2 + t * 0.9, 2.4, h * 0.28, 0.1, h * 0.55, { solid: false, matOpts: { color: 0x2a2620, roughness: 0.95 } });
+  // left wall, collapsed at the far end
+  put(-w / 2, 0, t, h * 0.78, d * 0.62, 0);
+  put(-w / 2, d * 0.28, t, h * 0.32, d * 0.42, 0);
+  // right wall — only the front third stands
+  put(w / 2, d * 0.22, t, h * 0.52, d * 0.5, 0);
+  // front: two stubby pillars + a lintel that survived
+  for (const s of [-1, 1]) put(s * (w / 2 - 0.55), d / 2, 0.9, h * 0.9, t, 0);
+  put(0, d / 2, w - 2.0, 0.55, t, h * 0.72);
+  // upper storey fragment on the back wall
+  put(-w * 0.22, -d / 2, w * 0.5, 1.5, t, h);
+
+  // deck slab (the hold point) with a broken edge
+  const [dxp, dzp] = at(-0.3, -d * 0.24);
+  B.box(w * 0.96, 0.26, d * 0.44, 'concrete', dxp, deckY, dzp, yaw, { rep: 1.8, matOpts: { color: 0xb4ab97 } });
+  const [lxp, lzp] = at(-0.3, d * 0.12);
+  B.box(w * 0.9, 0.18, 1.1, 'concrete', lxp, deckY, lzp, yaw, { rep: 1.6, matOpts: { color: 0xa9a08c } });
+  // sandbag parapet on the deck
+  const [sxp, szp] = at(-0.3, -d * 0.44);
+  sandbagWall(B, sxp, szp, w * 0.7, yaw, 2);
+  // support columns under the deck
+  for (const ax of [-w * 0.36, w * 0.36]) {
+    const [px, pz] = at(ax, -d * 0.05);
+    B.cyl(0.18, 0.22, deckY, 'concrete', px, 0, pz, { seg: 8, solid: true, tag: 'stone', matOpts: { color: 0xa79f8b } });
+  }
+
+  // external stair running up the open side to the deck
+  const [sx2, sz2] = at(w / 2 + 1.35, 0.4);
+  stairway(B, sx2, sz2, {
+    steps: Math.round(deckY / 0.36), rise: 0.36, run: 0.42, w: 1.5,
+    yaw: yaw + Math.PI / 2, dir: 1, mat: 'concrete',
+  });
+  // landing that ties the stair to the deck
+  const [lx2, lz2] = at(w / 2 + 0.55, -d * 0.24);
+  B.box(1.5, 0.24, 1.6, 'concrete', lx2, deckY, lz2, yaw, { rep: 1.4, matOpts: { color: 0xb4ab97 } });
+
+  // rubble spilling out of the collapsed corner
+  const [rx, rz] = at(-w / 2 - 0.6, d * 0.35);
+  rockCluster(B, rx, rz, 4, 1.1);
+  const [rx2, rz2] = at(w * 0.2, -d / 2 - 0.5);
+  B.prop(boxGeo(1.2, 0.5, 0.7, 1.2), mat, rx2, 0.25, rz2, rand(0, 3), { matOpts: { color: tint } });
+  // blown-out interior dressing
+  const [cx, cz] = at(w * 0.1, 0);
+  crateStack(B, cx, cz, 2);
+  const [wx, wz] = at(-w * 0.25, d * 0.05);
+  tyreStack(B, wx, wz, 3);
+  return { x, z, yaw, deckY };
 }

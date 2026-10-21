@@ -25,23 +25,40 @@ export const KILL_LIMITS = [25, 50, 75, 100];
 export const DURATIONS = [5, 10, 15, 20];   // minutes
 
 // ── bot difficulty ──
+// `engage` scales how far a bot will take a shot before closing the gap, `aggr`
+// how hard it pushes toward the player. Bots fight up close — they are not turrets.
 export const DIFFICULTIES = {
   recruit: {
     id: 'recruit', name: 'RECRUIT',
     dmg: 0.65, hp: 0.85, spread: 2.1, reaction: 0.42, fireRate: 0.75, speed: 0.9, accuracyRange: 0.75,
+    engage: 0.72, aggr: 0.55,
   },
   regular: {
     id: 'regular', name: 'REGULAR',
     dmg: 1.0, hp: 1.0, spread: 1.0, reaction: 0.24, fireRate: 1.0, speed: 1.0, accuracyRange: 1.0,
+    engage: 0.88, aggr: 0.72,
   },
   veteran: {
     id: 'veteran', name: 'VETERAN',
     dmg: 1.3, hp: 1.15, spread: 0.68, reaction: 0.15, fireRate: 1.2, speed: 1.06, accuracyRange: 1.2,
+    engage: 1.0, aggr: 0.88,
   },
   elite: {
     id: 'elite', name: 'ELITE',
     dmg: 1.6, hp: 1.3, spread: 0.45, reaction: 0.08, fireRate: 1.45, speed: 1.12, accuracyRange: 1.45,
+    engage: 1.1, aggr: 1.0,
   },
+};
+
+// preferred fighting distance per weapon class (metres). Bots close to roughly
+// these ranges and only open fire once they are inside `engage`.
+export const BOT_RANGE = {
+  shotgun: 4.0,
+  smg: 8.0,
+  pistol: 9.0,
+  rifle: 13.0,
+  sniper: 17.0,
+  melee: 2.0,
 };
 
 // ── operator names (killfeed / scoreboard personality) ──
@@ -73,27 +90,49 @@ export const ZONES = [
 // ── arena / movement ──
 export const ARENA = { half: 52 };
 
+/**
+ * Movement tuning — calibrated against Modern Warfare (2019/II).
+ *   base run   4.57 m/s   ·  sprint 7.01 m/s   ·  crouch 2.44 m/s
+ *   jump apex  0.60 m     ·  slide burst 8.84 m/s
+ * The model is *target velocity* based (MW style), not Quake's exponential
+ * accelerate(): the ground response rate is 92 m/s², so the stick feels tight
+ * and there is a short slide-off tail instead of a dead stop.
+ */
 export const MOVE = {
-  walk: 4.9,
-  sprint: 6.9,
-  crouch: 2.55,
-  adsMul: 0.62,
-  accel: 12,            // ground accelerate() factor  (Quake/CS style)
-  airAccel: 30,         // air accelerate() factor — enables air-strafing
-  airWishCap: 1.5,      // m/s wish-speed cap in air (airstrafe)
-  friction: 6.6,
-  stopSpeed: 3.0,
-  gravity: 21,
-  jumpVel: 6.2,
-  jumpBuffer: 0.12,
-  coyote: 0.10,
-  slideBoost: 9.5,
-  slideTime: 0.75,
-  slideFriction: 2.4,
+  walk: 4.57,
+  sprint: 7.01,
+  crouch: 2.44,
+  strafeScale: 0.92,    // slower sideways
+  backScale: 0.8,       // slower still backwards
+  adsMul: 0.5,          // aiming costs half your speed
+  accel: 92,            // m/s² toward the target velocity
+  decel: 52,            // decelerating to a slower target
+  stopDecel: 30,        // extra braking when the stick is released
+  airAccelScale: 0.25,  // air control is a quarter of ground authority
+  airSpeedCap: 3.4,     // air control may not add speed past this
+  airAccel: 23,         // legacy key (accel * airAccelScale)
+  airWishCap: 3.4,
+  friction: 6.6,        // legacy key
+  stopSpeed: 3.0,       // legacy key
+  gravity: 20.5,
+  jumpVel: 4.96,        // v = sqrt(2 * g * 0.6) → 0.60 m apex
+  jumpBuffer: 0.13,
+  coyote: 0.09,
+  jumpCooldown: 0.28,
+  slideBoost: 8.84,     // slide entry speed
+  slideTime: 0.9,
+  slideFriction: 0.75,  // exponential drag (1/s)
+  slideBrake: 0.85,     // linear brake (m/s²)
+  slideExit: 2.95,      // below this the slide becomes a crouch walk
+  slideMinEntry: 6.2,   // a slide always feels like a burst
+  slideMinSpeed: 5.2,   // minimum speed to start one
+  slideCooldown: 0.55,
+  slideSteer: 2.6,      // steering authority while sliding
   stepHeight: 0.52,
-  eyeStand: 1.62,
-  eyeCrouch: 1.05,
+  eyeStand: 1.66,
+  eyeCrouch: 1.02,
   radius: 0.42,
+  strideLength: 1.48,   // metres per step — the view bob is locked to this
 };
 
 export const COMBAT = {

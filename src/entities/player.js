@@ -172,44 +172,52 @@ export class Player {
     this.spawnProtect = Math.max(0, this.spawnProtect - dt);
 
     // ── desired direction (world space from yaw) ──
-    let fx = 0, fz = 0;
+    // Directional scaling: strafing is 8 % slower, backing up 20 % slower, and
+    // a diagonal keeps the full speed (MW-style), so the stick reads honest.
+    let fx = 0, fz = 0, wishMag = 0;
     if (cmd.forward || cmd.strafe) {
       const sinY = Math.sin(this.yaw), cosY = Math.cos(this.yaw);
-      fx = -sinY * cmd.forward + cosY * cmd.strafe;
-      fz = -cosY * cmd.forward - sinY * cmd.strafe;
-      const len = Math.hypot(fx, fz);
-      if (len > 0) { fx /= len; fz /= len; }
+      const fwd = cmd.forward * (cmd.forward < 0 ? MOVE.backScale : 1);
+      const str = cmd.strafe * MOVE.strafeScale;
+      const wx = -sinY * fwd + cosY * str;
+      const wz = -cosY * fwd - sinY * str;
+      wishMag = Math.min(1, Math.hypot(wx, wz));
+      if (wishMag > 1e-4) { fx = wx / Math.hypot(wx, wz); fz = wz / Math.hypot(wx, wz); }
     }
-    const wishSpeed0 = this.speedTarget(cmd);
+    const wishSpeed0 = this.speedTarget(cmd) * wishMag;
     this.sprinting = !!cmd.sprint && !cmd.crouch && cmd.forward > 0.1 && !this.ads;
 
     // ── crouch / slide ──
     const wantsCrouch = !!cmd.crouch;
-    if (wantsCrouch && !this.crouching && this.onGround && this.speed > 6.2 && !this.sliding && !this.ads) {
+    this.slideCd = Math.max(0, (this.slideCd || 0) - dt);
+    if (wantsCrouch && !this.crouching && this.onGround && this.speed > w.slideMinSpeed
+        && !this.sliding && !this.ads && this.slideCd <= 0) {
       this.sliding = true;
       this.slideT = w.slideTime;
+      this.slideCd = w.slideCooldown;
       this.slideDir.set(fx || -Math.sin(this.yaw), fz || -Math.cos(this.yaw)).normalize();
-      const cur = Math.hypot(this.vel.x, this.vel.z);
-      this.vel.x = this.slideDir.x * Math.max(cur, 6.0) * (1 + w.slideBoost * 0.028);
-      this.vel.z = this.slideDir.y * Math.max(cur, 6.0) * (1 + w.slideBoost * 0.028);
+      // a slide always enters as a burst, never slower than the minimum entry
+      const cur = Math.max(Math.hypot(this.vel.x, this.vel.z), w.slideMinEntry);
+      this.vel.x = this.slideDir.x * cur;
+      this.vel.z = this.slideDir.y * cur;
       sfx.slide();
     }
     this.crouching = wantsCrouch || this.sliding;
     if (this.sliding) {
       this.slideT -= dt;
       // steer the slide a little, then drop back to a crouch
-      const steer = clamp(cmd.strafe, -1, 1) * 1.6 * dt;
+      const steer = clamp(cmd.strafe, -1, 1) * w.slideSteer * dt;
       const a = Math.atan2(this.slideDir.y, this.slideDir.x) + steer;
       this.slideDir.set(Math.cos(a), Math.sin(a));
-      if (this.slideT <= 0) this.sliding = false;
+      if (this.slideT <= 0 || this.speed < w.slideExit) this.sliding = false;
     }
 
     // ── body height + headroom ──
-    const targetH = this.crouching ? 1.25 : 1.75;
+    const targetH = this.crouching ? 1.2 : 1.78;
     if (targetH > this.height) {
-      if (canStand(this.grid, this.world.groundHeight, this.pos.x, this.pos.z, this.pos.y, this.radius, 1.75, this.step)) {
+      if (canStand(this.grid, this.world.groundHeight, this.pos.x, this.pos.z, this.pos.y, this.radius, 1.78, this.step)) {
         this.height = Math.min(targetH, this.height + dt * 3.2);
-        if (this.height >= 1.74) { this.height = 1.75; this.crouching = false; }
+        if (this.height >= 1.77) { this.height = 1.78; this.crouching = false; }
       }
     } else {
       this.height = Math.max(targetH, this.height - dt * 3.6);
@@ -218,26 +226,39 @@ export class Player {
     // ── jump (buffer + coyote) ──
     this.jumpBuffer = cmd.jumpPressed ? w.jumpBuffer : Math.max(0, this.jumpBuffer - dt);
     if (this.onGround) this.coyote = w.coyote; else this.coyote = Math.max(0, this.coyote - dt);
-    if (this.jumpBuffer > 0 && this.coyote > 0 && !this.sliding) {
+    this.jumpCd = Math.max(0, (this.jumpCd || 0) - dt);
+    if (this.jumpBuffer > 0 && this.coyote > 0 && !this.sliding && this.jumpCd <= 0) {
       this.vel.y = w.jumpVel;
       this.jumpBuffer = 0;
       this.coyote = 0;
+      this.jumpCd = w.jumpCooldown;
       this.onGround = false;
       this.sliding = false;
       if (!this.isBot) sfx.jump();
     }
 
-    // ── accel / friction ──
-    const wishSpeed = wishSpeed0 * (this.sliding ? 1 : 1);
+    // ── accel (MW-style target velocity) ──
     if (this.onGround && !this.sliding) {
-      frictionXZ(this.vel, dt, w.friction, w.stopSpeed);
-      accelerateXZ(this.vel, fx, fz, wishSpeed, w.accel, dt);
+      this.accelerateGround(dt, fx, fz, wishSpeed0, cmd);
     } else if (this.onGround && this.sliding) {
-      frictionXZ(this.vel, dt, w.slideFriction, 1.0);
-      accelerateXZ(this.vel, fx, fz, wishSpeed * 0.35, 2.2, dt);
+      // slide: exponential drag + linear brake, bled out to a crouch walk
+      const sp = Math.hypot(this.vel.x, this.vel.z);
+      const drag = Math.exp(-w.slideFriction * dt);
+      this.vel.x *= drag; this.vel.z *= drag;
+      if (sp > 1e-4) {
+        const ns = Math.max(0, sp - w.slideBrake * dt) / sp;
+        this.vel.x *= ns; this.vel.z *= ns;
+      }
+      // steering authority — enough to curve the slide, not to turn around
+      const st = clamp(cmd.strafe, -1, 1) * w.slideSteer * dt;
+      const cs = Math.cos(st), sn = Math.sin(st);
+      const vx = this.vel.x * cs - this.vel.z * sn;
+      const vz = this.vel.x * sn + this.vel.z * cs;
+      this.vel.x = vx; this.vel.z = vz;
     } else {
-      // air: quake-style — small cap on the added speed enables strafe jumping
-      accelerateXZ(this.vel, fx, fz, Math.min(wishSpeed, w.airWishCap), w.airAccel, dt);
+      // air: a quarter of ground authority, and it may only add speed along the
+      // wish direction up to the cap — steer your momentum, never amplify it
+      this.accelerateAir(dt, fx, fz);
     }
     this.vel.y -= w.gravity * dt;
     this.vel.y = Math.max(this.vel.y, -46);
@@ -275,7 +296,8 @@ export class Player {
     if (this.onGround && this.speed > 1.6 && !this.sliding) {
       this.footT -= dt * this.speed;
       if (this.footT <= 0) {
-        this.footT = this.sprinting ? 3.1 : 2.6;
+        // one step per stride length — the same cadence drives the view bob
+        this.footT = this.sprinting ? MOVE.strideLength * 1.06 : MOVE.strideLength;
         if (!this.isBot) sfx.footstep(clamp(0.055 + this.speed * 0.012, 0.05, 0.2), this.world.surfaceAt ? this.world.surfaceAt(this.pos.x, this.pos.z) : 'dirt');
         else if (this.distToListener && this.distToListener < 22) sfx.footstep(clamp(0.02 + this.speed * 0.004, 0.015, 0.08) * (1 - this.distToListener / 22));
       }
@@ -300,12 +322,40 @@ export class Player {
     this.updateCamera(dt);
   }
 
+  /** drive the horizontal velocity toward (fx,fz) * target at MOVE.accel m/s² */
+  accelerateGround(dt, fx, fz, target, cmd) {
+    const v = this.vel;
+    const tx = fx * target, tz = fz * target;
+    const dx = tx - v.x, dz = tz - v.z;
+    const dl = Math.hypot(dx, dz);
+    if (dl < 1e-6) return;
+    const cur = Math.hypot(v.x, v.z);
+    let rate;
+    if (!cmd.forward && !cmd.strafe) rate = MOVE.stopDecel;
+    else if (target < cur * 0.92) rate = MOVE.decel;
+    else rate = MOVE.accel;
+    const step = rate * dt;
+    if (dl <= step) { v.x = tx; v.z = tz; }
+    else { const s = step / dl; v.x += dx * s; v.z += dz * s; }
+  }
+
+  /** air control — a quarter of ground authority, capped so it cannot add speed */
+  accelerateAir(dt, fx, fz) {
+    if (!fx && !fz) return;
+    const v = this.vel;
+    const along = v.x * fx + v.z * fz;
+    const add = MOVE.airSpeedCap - along;
+    if (add <= 0) return;
+    const accel = MOVE.accel * MOVE.airAccelScale * dt;
+    const gain = accel < add ? accel : add;
+    v.x += fx * gain; v.z += fz * gain;
+  }
+
   speedTarget(cmd) {
     let s = MOVE.walk;
     if (this.sprinting) s = MOVE.sprint;
     if (this.crouching) s = MOVE.crouch;
     if (this.ads) s *= MOVE.adsMul;
-    if (cmd.forward < -0.1) s *= 0.86;
     return s;
   }
 
@@ -327,7 +377,9 @@ export class Player {
     const sp = this.speed;
     const moving = this.onGround && sp > 0.8;
     if (moving && !this.ads) {
-      this.bobT += dt * (this.sprinting ? 11.4 : 8.8) * clamp(sp / MOVE.walk, 0.4, 1.5);
+      // the bob is locked to the footstep cadence (one cycle per two steps),
+      // so the view never drifts out of sync with the sound of the boots
+      this.bobT += dt * Math.PI * sp / MOVE.strideLength;
     }
     const amp = moving && !this.ads ? clamp(sp / MOVE.sprint, 0, 1) * (this.crouching ? 0.35 : 1) : 0;
     const targetBob = Math.sin(this.bobT * 2) * 0.045 * amp;

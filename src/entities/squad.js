@@ -9,9 +9,10 @@ export class Match {
   constructor(game, settings) {
     this.game = game;
     this.mode = settings.mode || 'tdm';
-    this.teamSize = settings.teamSize ?? 4;
+    // both spellings accepted — the test rigs and the menu use different ones
+    this.teamSize = settings.teamSize ?? settings.teamsize ?? 4;
     this.difficultyId = settings.difficulty || 'regular';
-    this.killLimit = settings.killLimit ?? 50;
+    this.killLimit = settings.killLimit ?? settings.killlimit ?? 50;
     this.duration = (settings.duration ?? 10) * 60;
     this.bots = [];
     this.score = { alpha: 0, bravo: 0 };

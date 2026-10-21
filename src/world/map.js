@@ -13,7 +13,7 @@ import {
   townhouse, awning, awningRow, acUnit, downspout, streetLamp, wire, marketStall,
   fruitCart, hangingSign, mosque, shed, container, shelfRack, forklift,
   sandbagWall, jerseyLine, tent, truck, watchtower, palm, bush, rockCluster,
-  flagpole, waterTower, stairway,
+  flagpole, waterTower, stairway, car, drumCluster, planter, ruin,
 } from './props.js';
 
 export const MAP_NAME = 'SIDI BOU ALI';
@@ -62,6 +62,9 @@ export function buildMap(B) {
 
   // ═════════════ east: industrial depot ═════════════
   depotPass(B);
+
+  // ═════════════ street life: wrecks, drums, ruined buildings ═════════════
+  streetPass(B);
 
   // ═════════════ south: alpha base ═════════════
   alphaPass(B, S.alpha);
@@ -449,6 +452,56 @@ function bravoPass(B, spawns) {
     [-4, -46.5], [4, -46.5], [0, -42.5], [-5.5, -44.5], [5.5, -44.5], [-3, -38], [3, -38],
     [-14, -36.5], [14, -36.5], [-19, -41], [19, -41], [0, -33.5], [-9, -35.5], [9, -35.5],
   ]) spawns.push({ x: s[0], z: s[1], yaw: Math.PI });    // bravo: face south, into the map
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Street furniture pass: ruined old-quarter buildings with stairs up to a deck,
+// parked/wrecked cars and oil-drum clusters. This is what turns the wide lanes
+// into a CS-style map — every 10 m there is something to fight behind.
+function streetPass(B) {
+  // ── old quarter ruins on both flanks (roof decks = the vertical play) ──
+  ruin(B, -29.5, 3.0, { yaw: Math.PI / 2, w: 9, d: 8, tint: 0xc6b797 });
+  ruin(B, 29.5, -3.0, { yaw: -Math.PI / 2, w: 9, d: 8, tint: 0xbfb192 });
+  B.zone('OLD QUARTER', -29.5, 3, 12);
+  B.zone('OLD QUARTER', 29.5, -3, 12);
+
+  // ── parked / wrecked cars: hard cover that cuts the long lanes ──
+  car(B, -15.5, 12.5, { yaw: deg(94), tint: 0x9c9484 });
+  car(B, 16.0, -12.0, { yaw: deg(-86), tint: 0x6d7f8c, wreck: true });
+  car(B, 0.5, 26.5, { yaw: deg(8), tint: 0x8f8560 });
+  car(B, -1.0, -26.5, { yaw: deg(186), tint: 0x8a5048 });
+  car(B, -38.0, 16.0, { yaw: deg(88), tint: 0x5f6f5c, wreck: true });
+  car(B, 32.5, 9.5, { yaw: deg(4), tint: 0xb0aa9c });
+  car(B, -21.5, 35.5, { yaw: deg(96), tint: 0x7a7466 });
+  car(B, 21.5, -35.5, { yaw: deg(-84), tint: 0x8f8560, wreck: true });
+
+  // ── oil drums: clustered hard cover along the lanes and yard edges ──
+  drumCluster(B, -21.0, 12.5, 3);
+  drumCluster(B, 21.5, -12.5, 3);
+  drumCluster(B, 3.5, 33.5, 2);
+  drumCluster(B, -3.5, -33.5, 2);
+  drumCluster(B, -36.5, 4.0, 4);
+  drumCluster(B, 35.5, -20.0, 3);
+  drumCluster(B, 33.0, 24.0, 3);
+  drumCluster(B, -33.0, -26.0, 4);
+
+  // ── planters: waist-high cover that breaks the plaza into readable fights ──
+  planter(B, -10.5, 6.8, 3.2, 1.2, deg(6));
+  planter(B, 10.5, -6.8, 3.2, 1.2, deg(-6));
+  planter(B, -9.8, -8.2, 2.4, 1.2, deg(92));
+  planter(B, 9.8, 8.2, 2.4, 1.2, deg(92));
+  planter(B, -14.0, -13.5, 3.4, 1.2, deg(45));
+  planter(B, 11.5, 15.5, 3.4, 1.2, deg(45));
+
+  // ── flank cover in the strip between the souk and the side roads ──
+  crateStack(B, -19.5, 2.0, 3);
+  crateStack(B, 19.5, -2.0, 3);
+  sandbagWall(B, -12.5, 18.5, 5, 0, 2);
+  sandbagWall(B, 12.5, -18.5, 5, 0, 2);
+  barrel(B, -17.5, 20.5);
+  barrel(B, 17.5, -20.5);
+  wasteBin(B, 12.0, 24.0);
+  wasteBin(B, -12.0, -24.0);
 }
 
 // ═══════════════════════════════════════════════════════════════

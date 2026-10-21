@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { boxGeo, projectUV } from '../core/geo.js';
 import { clamp, damp, lerp, rand, chance, pick, angleDelta, rotTowards } from '../core/utils.js';
 import { moveBody, rayHit } from './physics.js';
-import { MOVE, COMBAT, DIFFICULTIES } from '../core/config.js';
+import { MOVE, COMBAT, DIFFICULTIES, BOT_RANGE } from '../core/config.js';
 import { sfx } from '../core/audio.js';
 import { WEAPONS } from '../weapons/defs.js';
 import { hitscan, spreadDir } from '../weapons/weapons.js';
@@ -85,30 +85,51 @@ export class OperatorModel {
     this.team = team;
     this.ghillie = ghillie;
 
-    // hips pivot carries the upper body
+    // ── rig: root → hips (pelvis) → spine → chest → neck → head ──
+    // Two extra pivots over the old single hips pivot: the pelvis can roll and the
+    // chest counter-rotate / lean independently, which is what separates a real
+    // walk from a mannequin gliding forward.
     const hips = new THREE.Group();
     hips.position.y = 0.94;
     root.add(hips);
     this.hips = hips;
 
+    box(hips, 0.34, 0.2, 0.24, body, 0, -0.09, 0);                     // pelvis
+    box(hips, 0.37, 0.09, 0.26, m.strap, 0, 0.02, 0);                  // belt
+
+    const spine = new THREE.Group();
+    hips.add(spine);
+    this.spine = spine;
+
     const torso = new THREE.Group();
-    hips.add(torso);
+    spine.add(torso);
     this.torso = torso;
     box(torso, 0.42, 0.5, 0.24, body, 0, 0.28, 0);                     // chest
     box(torso, 0.4, 0.16, 0.22, body, 0, 0.02, 0);                     // waist
     const plate = box(torso, 0.38, 0.36, 0.1, vest, 0, 0.3, 0.14);     // front plate carrier
     plate.scale.z = 1;
     box(torso, 0.34, 0.3, 0.08, vest, 0, 0.3, -0.14);                  // back plate
-    for (const sx of [-1, 1]) box(torso, 0.09, 0.1, 0.09, m.strap, sx * 0.12, 0.12, 0.16);   // pouches
+    box(torso, 0.12, 0.22, 0.14, m.strap, -0.09, 0.32, -0.2);          // assault pack
+    for (const sx of [-1, 1]) {
+      box(torso, 0.09, 0.1, 0.09, m.strap, sx * 0.12, 0.12, 0.16);     // pouches
+      box(torso, 0.07, 0.08, 0.05, m.strap, sx * 0.19, 0.17, 0.15);    // mag pouches
+      box(torso, 0.13, 0.1, 0.15, vest, sx * 0.2, 0.47, 0);            // shoulder pads
+    }
     box(torso, 0.2, 0.09, 0.06, m.strap, 0, 0.16, -0.16);              // radio
+    box(torso, 0.05, 0.52, 0.03, m.strap, 0.11, 0.28, 0.19, 0, 0, 0.34); // sling across the chest
     if (team === 'bravo' && !ghillie) {
       box(torso, 0.26, 0.12, 0.06, m.strap, 0, 0.02, 0.13);            // chest rig
     }
 
-    // head + helmet
+    // neck + head
+    const neck = new THREE.Group();
+    neck.position.y = 0.55;
+    torso.add(neck);
+    this.neck = neck;
+    box(neck, 0.1, 0.1, 0.1, m.skin, 0, 0.02, 0);
     const head = new THREE.Group();
-    head.position.y = 0.62;
-    torso.add(head);
+    head.position.y = 0.09;
+    neck.add(head);
     this.head = head;
     box(head, 0.17, 0.2, 0.19, m.skin, 0, 0.02, 0);
     box(head, 0.1, 0.07, 0.05, m.skin, 0, -0.02, 0.1);                 // jaw / neck
@@ -145,18 +166,22 @@ export class OperatorModel {
     this.armR = mkArm(1);
     this.armL = mkArm(-1);
 
-    // legs
+    // legs: thigh → shin → ankle, so the boot can stay flat on the ground
     const mkLeg = (side) => {
       const up = new THREE.Group();
-      up.position.set(side * 0.11, 0, 0);
+      up.position.set(side * 0.11, -0.02, 0);
       hips.add(up);
-      box(up, 0.15, 0.46, 0.16, body, 0, -0.24, 0);
+      box(up, 0.16, 0.46, 0.17, body, 0, -0.23, 0);
+      box(up, 0.17, 0.15, 0.18, vest, 0, -0.42, 0.01);                 // knee pad
       const low = new THREE.Group();
       low.position.y = -0.46;
       up.add(low);
-      box(low, 0.14, 0.44, 0.14, body, 0, -0.22, 0);
-      box(low, 0.16, 0.12, 0.26, m.boot, 0, -0.44, 0.04);              // combat boot
-      return { up, low };
+      box(low, 0.14, 0.42, 0.14, body, 0, -0.2, 0);
+      const foot = new THREE.Group();
+      foot.position.y = -0.42;
+      low.add(foot);
+      box(foot, 0.16, 0.11, 0.28, m.boot, 0, -0.045, 0.05);            // combat boot
+      return { up, low, foot };
     };
     this.legR = mkLeg(1);
     this.legL = mkLeg(-1);
@@ -173,55 +198,134 @@ export class OperatorModel {
     root.traverse(n => { if (n.isMesh) { n.castShadow = true; n.receiveShadow = true; } });
 
     this.walkPhase = Math.random() * 6.28;
+    this.breathSeed = Math.random() * 6.28;
     this.aimPitch = 0;
     this.deadT = -1;
     this.root.rotation.y = 0;
   }
 
-  /** pose the body from movement + aim state */
+  /**
+   * Pose the body from movement + aim state.
+   * ctx = { speed, aiming, crouch, pitch, time, sprint, strafe, knock, air, alive }
+   */
   pose(dt, ctx) {
-    const { speed = 0, aiming = false, crouch = false, pitch = 0, time = 0, alive = true } = ctx;
-    const moving = speed > 0.4;
+    const {
+      speed = 0, aiming = false, crouch = false, pitch = 0, time = 0, alive = true,
+      sprint = false, strafe = 0, knock = 0, air = false,
+    } = ctx;
     if (!alive) return;
-    this.walkPhase += dt * (3.4 + speed * 1.15);
-    const s = clamp(speed / 6.5, 0, 1.4);
-    const swing = Math.sin(this.walkPhase) * s;
-    const swing2 = Math.sin(this.walkPhase * 2) * s;
-    if (crouch) {
-      this.hips.position.y = lerp(this.hips.position.y, 0.66, 1 - Math.exp(-9 * dt));
-      this.legR.up.rotation.x = lerp(this.legR.up.rotation.x, 0.95, 1 - Math.exp(-9 * dt));
-      this.legL.up.rotation.x = lerp(this.legL.up.rotation.x, 0.95, 1 - Math.exp(-9 * dt));
-      this.legR.low.rotation.x = lerp(this.legR.low.rotation.x, -1.5, 1 - Math.exp(-9 * dt));
-      this.legL.low.rotation.x = lerp(this.legL.low.rotation.x, -1.5, 1 - Math.exp(-9 * dt));
-    } else {
-      this.hips.position.y = lerp(this.hips.position.y, 0.94, 1 - Math.exp(-9 * dt));
-      this.legR.up.rotation.x = swing * 0.62;
-      this.legL.up.rotation.x = -swing * 0.62;
-      this.legR.low.rotation.x = Math.max(0, -swing) * 0.75;
-      this.legL.low.rotation.x = Math.max(0, swing) * 0.75;
-    }
-    // torso lean + bob
-    this.torso.rotation.x = lerp(this.torso.rotation.x, clamp(speed * 0.014, 0, 0.16) + (aiming ? -0.06 : 0), 1 - Math.exp(-8 * dt));
-    this.torso.position.y = swing2 * 0.02;
-    this.torso.rotation.y = lerp(this.torso.rotation.y, -swing * 0.06, 1 - Math.exp(-8 * dt));
-    // arms hold the weapon
-    const hold = aiming ? 1 : 0.55;
-    const recoil = this.gunRecoil || 0;
-    this.gunRecoil = Math.max(0, recoil - dt * 6);
-    this.armR.up.rotation.x = lerp(this.armR.up.rotation.x, -0.95 * hold + pitch * 0.6 - recoil * 0.3, 1 - Math.exp(-12 * dt));
-    this.armR.up.rotation.z = lerp(this.armR.up.rotation.z, -0.24 * hold, 1 - Math.exp(-12 * dt));
-    this.armR.low.rotation.x = lerp(this.armR.low.rotation.x, -0.5 * hold - pitch * 0.35, 1 - Math.exp(-12 * dt));
-    this.armL.up.rotation.x = lerp(this.armL.up.rotation.x, -1.15 * hold + pitch * 0.6 - recoil * 0.3, 1 - Math.exp(-12 * dt));
-    this.armL.up.rotation.z = lerp(this.armL.up.rotation.z, 0.46 * hold, 1 - Math.exp(-12 * dt));
-    this.armL.low.rotation.x = lerp(this.armL.low.rotation.x, -0.7 * hold - pitch * 0.3, 1 - Math.exp(-12 * dt));
-    // head looks where the gun is pointing
-    this.head.rotation.x = lerp(this.head.rotation.x, clamp(pitch, -0.7, 0.9) * 0.85, 1 - Math.exp(-11 * dt));
-    // weapon follows the aim pitch a little
-    this.gun.rotation.x = lerp(this.gun.rotation.x, clamp(pitch, -0.6, 0.8) * 0.5 - 0.03 - recoil * 0.25, 1 - Math.exp(-14 * dt));
-    this.gun.position.z = 0.28 - recoil * 0.06;
+    const k = (rate) => 1 - Math.exp(-rate * dt);
+    const s = clamp(speed / 6.4, 0, 1.15);
+    const moving = speed > 0.35 && !air;
+
+    // gait phase advances with distance covered, not with wall-clock time — that is
+    // what keeps the boots planted instead of skating over the cobbles
+    if (moving) this.walkPhase += dt * (1.2 + speed * 1.95);
+    const p = this.walkPhase;
+    const sw = Math.sin(p);
+
+    // ── legs ──
+    const amp = crouch ? 0.26 : clamp(0.1 + s * 0.52, 0.1, 0.6);
+    const leg = (L, side) => {
+      const lp = p + (side > 0 ? 0 : Math.PI);
+      const ls = Math.sin(lp);
+      const pass = Math.max(0, Math.cos(lp));            // 1 at the passing position
+      let thigh, knee, ankle;
+      if (air) {
+        thigh = side > 0 ? -0.62 : 0.28;
+        knee = side > 0 ? 1.05 : 0.4;
+        ankle = -(thigh + knee) * 0.45;
+      } else if (crouch) {
+        thigh = -0.92 + ls * 0.14;
+        knee = 1.45 + pass * 0.1;
+        ankle = 0.34;
+      } else {
+        thigh = -ls * amp - 0.05;
+        knee = 0.12 + pass * (0.5 + s * 0.75) * 0.95 + Math.max(0, -ls) * 0.1;
+        ankle = -(thigh + knee) * 0.7;
+      }
+      L.up.rotation.x = lerp(L.up.rotation.x, thigh, k(14));
+      L.low.rotation.x = lerp(L.low.rotation.x, knee, k(15));
+      L.foot.rotation.x = lerp(L.foot.rotation.x, ankle, k(16));
+    };
+    leg(this.legR, 1);
+    leg(this.legL, -1);
+
+    // ── pelvis: drop, roll and counter-rotate ──
+    const hipBase = crouch ? 0.68 : 0.94;
+    const bob = crouch ? 0 : -Math.cos(p * 2) * 0.02 * s - 0.008 * s;
+    this.hips.position.y = lerp(this.hips.position.y, hipBase + bob, k(12));
+    this.hips.rotation.z = lerp(this.hips.rotation.z, sw * 0.05 * s + strafe * 0.045, k(10));
+    this.hips.rotation.y = lerp(this.hips.rotation.y, -sw * 0.07 * s, k(10));
+
+    // ── chest: dropped-shoulder stance, counter-rotation, hit flinch ──
+    const lean = (aiming ? 0.05 : 0.1) + s * 0.1 + (crouch ? 0.16 : 0) + knock * 0.3;
+    this.spine.rotation.x = lerp(this.spine.rotation.x, lean, k(9));
+    this.spine.rotation.y = lerp(this.spine.rotation.y, sw * 0.1 * s - strafe * 0.1, k(9));
+    this.spine.rotation.z = lerp(this.spine.rotation.z, -strafe * 0.06 + knock * 0.2, k(12));
+
+    // ── head: tracks the aim, cranes forward, nods on the gait ──
+    const headPitch = clamp(pitch, -0.7, 0.9);
+    this.neck.rotation.x = lerp(this.neck.rotation.x, headPitch * 0.45 + 0.04, k(13));
+    this.head.rotation.x = lerp(this.head.rotation.x, headPitch * 0.55 - sw * 0.02 * s, k(13));
+    this.head.rotation.y = lerp(this.head.rotation.y, aiming ? 0 : -strafe * 0.16, k(9));
+
+    // ── arms + weapon carry (low-ready → shouldered → slung at sprint) ──
+    const rec = this.gunRecoil || 0;
+    this.gunRecoil = Math.max(0, rec - dt * 6);
+    const aimW = aiming ? 1 : 0;
+    const sprintW = sprint && !aiming ? 1 : 0;
+    const swing = sw * (0.16 + s * 0.2);
+    const mix = (idle, aim, sprintV) => lerp(lerp(idle, aim, aimW), sprintV, sprintW);
+
+    this.armR.up.rotation.x = lerp(this.armR.up.rotation.x, mix(-0.58 + swing * 0.3, -0.95 + headPitch * 0.6, -0.3) - rec * 0.35, k(13));
+    this.armR.up.rotation.z = lerp(this.armR.up.rotation.z, mix(-0.42, -0.24, -0.55), k(13));
+    this.armR.low.rotation.x = lerp(this.armR.low.rotation.x, mix(-0.85, -0.5 - headPitch * 0.35, -1.0) - rec * 0.2, k(13));
+    this.armL.up.rotation.x = lerp(this.armL.up.rotation.x, mix(-0.88 + swing * 0.4, -1.15 + headPitch * 0.6, -0.45) - rec * 0.3, k(13));
+    this.armL.up.rotation.z = lerp(this.armL.up.rotation.z, mix(0.6, 0.46, 0.24), k(13));
+    this.armL.low.rotation.x = lerp(this.armL.low.rotation.x, mix(-1.12, -0.7 - headPitch * 0.3, -0.95), k(13));
+
+    const gp = this.gun.position, gr = this.gun.rotation;
+    gp.x = damp(gp.x, mix(0.06, 0.02, 0.12), 14, dt);
+    gp.y = damp(gp.y, mix(0.3, 0.42, 0.16), 14, dt);
+    gp.z = damp(gp.z, mix(0.3, 0.28, 0.24) - rec * 0.05, 14, dt);
+    gr.x = damp(gr.x, mix(0.42, headPitch * 0.9 - 0.02, 0.85) - rec * 0.22, 15, dt);
+    gr.y = damp(gr.y, mix(0, 0, 0.2), 12, dt);
+    gr.z = damp(gr.z, mix(0.1, 0, 0.55) + rec * 0.05, 13, dt);
+
+    // idle breathing (tiny, but it kills the "statue" read)
+    const breath = Math.sin(time * 1.35 + (this.breathSeed || 0)) * 0.006;
+    this.neck.position.y = 0.55 + breath;
+    this.torso.scale.y = 1 + breath * 0.5;
   }
 
-  /** ragdoll-style collapse — limbs go limp and the body folds to the ground */
+  /** reset the rig to a neutral standing pose (respawn) */
+  resetPose() {
+    this.deadT = -1;
+    this.gunDropped = false;
+    this.gunRecoil = 0;
+    this.gun.visible = true;
+    this.hips.position.y = 0.94;
+    this.hips.rotation.set(0, 0, 0);
+    this.spine.rotation.set(0, 0, 0);
+    this.torso.rotation.set(0, 0, 0);
+    this.torso.scale.set(1, 1, 1);
+    this.head.rotation.set(0, 0, 0);
+    this.neck.rotation.set(0, 0, 0);
+    for (const L of [this.legR, this.legL]) {
+      L.up.rotation.set(0, 0, 0);
+      L.low.rotation.set(0, 0, 0);
+      L.foot.rotation.set(0, 0, 0);
+    }
+    for (const A of [this.armR, this.armL]) {
+      A.up.rotation.set(0, 0, 0);
+      A.low.rotation.set(0, 0, 0);
+    }
+    this.gun.position.set(0.02, 0.42, 0.28);
+    this.gun.rotation.set(0, 0, 0);
+  }
+
+  /** collapse: knees give out, the body folds, then it rolls to the ground */
   die(dirFrom, t0) {
     this.deadT = 0;
     this.deadDir = dirFrom || 1;
@@ -236,31 +340,43 @@ export class OperatorModel {
     if (this.deadT < 0) return;
     this.deadT += dt;
     const t = this.deadT;
-    // limp limbs
-    const limp = clamp(t / 0.55, 0, 1);
-    const j = (k) => Math.sin(t * (5 + k) + this.deadSeed * k) * (1 - limp) * 0.5;
-    this.legR.up.rotation.x = lerp(this.legR.up.rotation.x, 0.45 + j(1) * 0.6, 1 - Math.exp(-5 * dt));
-    this.legL.up.rotation.x = lerp(this.legL.up.rotation.x, -0.2 + j(2) * 0.7, 1 - Math.exp(-5 * dt));
-    this.legR.low.rotation.x = lerp(this.legR.low.rotation.x, -0.9 + j(3) * 0.5, 1 - Math.exp(-5 * dt));
-    this.legL.low.rotation.x = lerp(this.legL.low.rotation.x, -0.5 + j(4) * 0.5, 1 - Math.exp(-5 * dt));
-    this.armR.up.rotation.x = lerp(this.armR.up.rotation.x, -0.4 + j(5) * 0.9, 1 - Math.exp(-4 * dt));
-    this.armL.up.rotation.x = lerp(this.armL.up.rotation.x, -0.2 + j(6) * 0.9, 1 - Math.exp(-4 * dt));
-    this.armR.up.rotation.z = lerp(this.armR.up.rotation.z, 0.7 + j(7) * 0.4, 1 - Math.exp(-4 * dt));
-    this.armL.up.rotation.z = lerp(this.armL.up.rotation.z, -0.9 + j(8) * 0.4, 1 - Math.exp(-4 * dt));
-    this.torso.rotation.x = lerp(this.torso.rotation.x, 0.25, 1 - Math.exp(-4 * dt));
-    this.torso.rotation.z = lerp(this.torso.rotation.z, 0.3 * this.deadAxis, 1 - Math.exp(-3 * dt));
-    this.head.rotation.x = lerp(this.head.rotation.x, 0.6, 1 - Math.exp(-4 * dt));
+    const k = (r) => 1 - Math.exp(-r * dt);
+    const limp = clamp(t / 0.6, 0, 1);
+    const j = (n) => Math.sin(t * (5 + n) + this.deadSeed * n) * (1 - limp) * 0.45;
+
+    // −− the last frame of the fall: knees buckle before the torso drops −−
+    this.legR.up.rotation.x = lerp(this.legR.up.rotation.x, -0.3 + j(1) * 0.5, k(6));
+    this.legL.up.rotation.x = lerp(this.legL.up.rotation.x, -0.55 + j(2) * 0.5, k(6));
+    this.legR.low.rotation.x = lerp(this.legR.low.rotation.x, 1.1 + j(3) * 0.4, k(6));
+    this.legL.low.rotation.x = lerp(this.legL.low.rotation.x, 0.75 + j(4) * 0.4, k(6));
+    this.legR.foot.rotation.x = lerp(this.legR.foot.rotation.x, -0.3, k(6));
+    this.legL.foot.rotation.x = lerp(this.legL.foot.rotation.x, -0.2, k(6));
+    this.hips.position.y = lerp(this.hips.position.y, 0.52, k(5));
+    this.hips.rotation.z = lerp(this.hips.rotation.z, 0.16 * this.deadAxis, k(4));
+
+    this.armR.up.rotation.x = lerp(this.armR.up.rotation.x, -0.5 + j(5) * 0.8, k(5));
+    this.armL.up.rotation.x = lerp(this.armL.up.rotation.x, -0.25 + j(6) * 0.8, k(5));
+    this.armR.up.rotation.z = lerp(this.armR.up.rotation.z, 0.7 + j(7) * 0.35, k(4));
+    this.armL.up.rotation.z = lerp(this.armL.up.rotation.z, -0.9 + j(8) * 0.35, k(4));
+    this.armR.low.rotation.x = lerp(this.armR.low.rotation.x, -0.5, k(5));
+    this.armL.low.rotation.x = lerp(this.armL.low.rotation.x, -0.4, k(5));
+
+    this.spine.rotation.x = lerp(this.spine.rotation.x, 0.42, k(4));
+    this.spine.rotation.z = lerp(this.spine.rotation.z, 0.28 * this.deadAxis, k(3));
+    this.neck.rotation.x = lerp(this.neck.rotation.x, 0.3, k(4));
+    this.head.rotation.x = lerp(this.head.rotation.x, 0.35, k(4));
+
     this.gun.visible = t < 0.35;
     if (!this.gun.visible && !this.gunDropped) {
       this.gunDropped = true;
       this.dropCallback && this.dropCallback();
     }
-    // fall over: rotate the root around the feet, then settle
-    const fall = clamp(t / 0.75, 0, 1);
+    // fold, then rotate around the feet and settle with a small bounce
+    const fall = clamp((t - 0.1) / 0.72, 0, 1);
     const ease = fall * fall * (3 - 2 * fall);
-    this.root.rotation.x = ease * (Math.PI / 2) * 0.92 * this.deadDir;
-    this.root.rotation.z = ease * 0.35 * this.deadAxis;
-    this.root.position.y = groundY + Math.sin(clamp(t / 0.9, 0, 1) * Math.PI) * 0.06;
+    this.root.rotation.x = ease * (Math.PI / 2) * 0.94 * this.deadDir;
+    this.root.rotation.z = ease * 0.38 * this.deadAxis;
+    this.root.position.y = groundY + Math.sin(clamp(t / 0.95, 0, 1) * Math.PI) * 0.05 + ease * 0.1;
   }
 }
 
@@ -339,6 +455,10 @@ export class Bot {
     this.classId = o.classId || pick(BOT_KITS.slice(0, 3));
     const def = WEAPONS[this.classId];
     this.weapon = def;
+    // fighting distance: what the gun is for, stretched by how good this bot is
+    this.idealRange = BOT_RANGE[def.cls] ?? 12;
+    this.engageRange = this.idealRange * (1.15 + this.difficulty.engage * 0.25);
+    this.pushT = 0;
     this.mag = def.mag;
     this.reloading = 0;
     this.fireT = 0;
@@ -413,9 +533,7 @@ export class Bot {
     this.model.root.visible = true;
     this.model.root.position.copy(this.pos);
     this.model.root.rotation.set(0, this.yaw, 0);
-    this.model.deadT = -1;
-    this.model.gun.visible = true;
-    this.model.gunDropped = false;
+    this.model.resetPose();
     if (this.droppedGun) { this.game.scene.remove(this.droppedGun); this.droppedGun = null; }
     this.goal.set(spawn.x, 0, spawn.z);
     this.goalSetT = 0;
@@ -430,8 +548,9 @@ export class Bot {
     this.lastHit = performance.now() / 1000;
     if (from && from !== this) {
       this.lastAttacker = from;
-      // flinch the aim
+      // flinch the aim + body so incoming fire reads on the model
       this.recoilAim += amount * 0.0022;
+      this.hitFlinch = Math.min(1, (this.hitFlinch || 0) + 0.45 + amount * 0.006);
       // getting shot pulls attention to the shooter even from outside the cone
       if (from.alive) {
         this.target = from;
@@ -555,12 +674,17 @@ export class Bot {
 
     const isSniper = this.weapon.cls === 'sniper';
     const hasTarget = !!this.target;
+    const ideal = this.idealRange;
+    this.pushT = Math.max(0, this.pushT - dt);
 
     // ── state machine ──
+    // Bots fight in your face: outside the engage range they keep pushing in,
+    // inside it they strafe, and only when you are almost touching do they back off.
     if (hasTarget) {
       const dist = Math.hypot(this.target.pos.x - this.pos.x, this.target.pos.z - this.pos.z);
-      const ideal = this.weapon.cls === 'shotgun' ? 4.5 : (this.weapon.cls === 'smg' ? 8 : (isSniper ? 26 : 13));
-      this.state = dist > ideal * 1.25 ? 'advance' : (dist < ideal * 0.6 ? 'back' : 'hold');
+      const rush = dist > this.engageRange;
+      this.state = rush ? 'advance' : (dist < ideal * 0.55 ? 'back' : 'hold');
+      if (rush) this.pushT = 0.6;
     } else {
       this.state = this.goalSetT > 7 ? 'reposition' : 'advance';
     }
@@ -584,7 +708,12 @@ export class Bot {
     // ── steering ──
     let wishX = 0, wishZ = 0;
     const standoff = hasTarget && this.state === 'hold';
-    if (standoff) {
+    const retreating = hasTarget && this.state === 'back';
+    if (retreating && this.target) {
+      const dx = this.pos.x - this.target.pos.x, dz = this.pos.z - this.target.pos.z;
+      const dist = Math.hypot(dx, dz) || 1;
+      wishX = dx / dist; wishZ = dz / dist;
+    } else if (standoff) {
       // strafe around the enemy, keep the distance — but break off if the strafe
       // grinds into a wall or another prop
       this.strafeT -= dt;
@@ -598,6 +727,11 @@ export class Bot {
       wishX = Math.sin(a) * this.strafeDir;
       wishZ = Math.cos(a) * this.strafeDir;
       if (Math.random() < 0.01) this.crouching = !this.crouching;
+    } else if (hasTarget && this.pushT > 0) {
+      // beeline: a clear line to the target is always faster than the waypoint path
+      const dx = this.target.pos.x - this.pos.x, dz = this.target.pos.z - this.pos.z;
+      const dist = Math.hypot(dx, dz) || 1;
+      wishX = dx / dist; wishZ = dz / dist;
     } else if (this.path && this.pathI < this.path.length) {
       const wp = this.path[this.pathI];
       const dx = wp.x - this.pos.x, dz = wp.z - this.pos.z;
@@ -654,11 +788,13 @@ export class Bot {
 
     // ── move ──
     const w = MOVE;
+    const sprinting = this.state === 'advance' && !hasTarget ? true : (this.pushT > 0 && this.weapon.cls !== 'sniper');
+    const moveSpeed = (this.crouching ? w.crouch : (sprinting ? w.sprint : w.walk)) * d.speed * (sprinting ? 0.94 : 0.92);
     if (this.onGround) {
-      frictionXZ(this.vel, dt, w.friction, w.stopSpeed);
-      accelerateXZ(this.vel, wishX, wishZ, (this.crouching ? w.crouch : w.walk) * d.speed * 0.92, w.accel, dt);
+      // same target-velocity model the player uses (MW-style ground response)
+      botAccelerateGround(this.vel, wishX, wishZ, moveSpeed, dt);
     } else {
-      accelerateXZ(this.vel, wishX, wishZ, Math.min(w.walk, w.airWishCap), w.airAccel, dt);
+      botAccelerateAir(this.vel, wishX, wishZ, dt);
     }
     this.vel.y -= w.gravity * dt;
     const res = moveBody({ pos: this.pos, vel: this.vel, radius: this.radius, height: this.height, step: this.step }, dt, this.grid, this.world.groundHeight);
@@ -694,6 +830,21 @@ export class Bot {
       if (this.onGround && chance(0.4)) this.vel.y = 5.6;
       this.pickGoal();
     }
+    // hard unstick: if the bot is still wedged (a deck, a prop, a wall corner)
+    // drop it back onto the nearest walkable cell of the nav grid
+    this.wedgeT = (this.wedgeT || 0) + (moved < 0.05 ? dt : -dt * 2);
+    if (this.wedgeT > 1.6) {
+      this.wedgeT = 0;
+      const p = this.game.nav.nearestWalkable(this.pos.x, this.pos.z, 9);
+      if (p) {
+        this.pos.set(p.x, this.game.nav.groundAt(p.x, p.z), p.z);
+        this.vel.set(0, 0, 0);
+        this.path = null;
+        this.repathT = 0;
+        this.reactT = this.difficulty.reaction;
+        this.targetSeen = 0;          // forget where we saw them, re-acquire
+      }
+    } else if (this.wedgeT < 0) this.wedgeT = 0;
     const lim = this.world.bounds - 1.4;
     this.pos.x = clamp(this.pos.x, -lim, lim);
     this.pos.z = clamp(this.pos.z, -lim, lim);
@@ -712,7 +863,7 @@ export class Bot {
       if (this.mag <= 0) {
         this.reloading = this.weapon.reload * rand(0.95, 1.15);
         sfx.mech('mag');
-      } else if (this.reactT <= 0 && off < 0.13 && this.dropCooldown <= 0) {
+      } else if (this.reactT <= 0 && off < 0.16 && this.dropCooldown <= 0 && dist <= this.engageRange) {
         if (this.fireT <= 0) this.shoot(dist);
       }
       // grenades when the enemy sits behind cover nearby
@@ -730,8 +881,11 @@ export class Bot {
     this.model.root.rotation.y = this.yaw;
     this.model.pose(dt, {
       speed: this.speed, aiming: hasTarget, crouch: this.crouching,
-      pitch: this.pitch, time,
+      pitch: this.pitch, time, sprint: sprinting, air: !this.onGround,
+      strafe: hasTarget ? clamp((wishX * Math.cos(this.yaw) - wishZ * Math.sin(this.yaw)) * 2.2, -1, 1) : 0,
+      knock: this.hitFlinch || 0,
     });
+    this.hitFlinch = Math.max(0, (this.hitFlinch || 0) - dt * 3.2);
     if (this.tag) {
       const cam = this.game.player.camera;
       const dist = cam.position.distanceTo(this.model.root.position);
@@ -748,6 +902,10 @@ export class Bot {
     const w = this.weapon;
     const auto = w.auto;
     this.bShots = (this.bShots || 0) + 1;
+    this.lastShotDist = dist;
+    this.shotDists = this.shotDists || [];
+    this.shotDists.push(Math.round(dist * 10) / 10);
+    if (this.shotDists.length > 40) this.shotDists.shift();
     if (this.burstPause > 0) { this.burstPause -= 0.1; return; }
     if (this.burstLeft <= 0) {
       this.burstLeft = w.cls === 'sniper' ? 1 : (w.cls === 'shotgun' ? 1 : Math.round(rand(2, 4)));
@@ -783,10 +941,12 @@ export class Bot {
     // tracer ends at the impact point, never behind a wall
     const endPt = hit.point ? hit.point.clone() : origin.clone().addScaledVector(dir, 60);
     this.game.fx.tracer(muzzle, endPt, { width: 0.03, opacity: 0.5, color: 0xffd89a });
+    // supersonic crack if the round passes close to the player's head
+    this.whizPast(origin, dir);
     if (hit.type === 'world') {
       this.bWorld = (this.bWorld || 0) + 1;
       this.game.fx.impact(hit.point, hit.normal, hit.tag, this.distToListener);
-      sfx.impact('concrete', this.distToListener);
+      sfx.impact('concrete', this.distToListener, this.panToListener());
     } else if (hit.type === 'entity') {
       this.bHits = (this.bHits || 0) + 1;
       const ent = hit.entity;
@@ -801,6 +961,23 @@ export class Bot {
       this.game.fx.impact(hit.point, null, 'flesh');
       if (killed && ent === this.game.player) sfx.killConfirm();
     }
+  }
+
+  /** play a whiz-by when a shot passes within a couple of metres of the player */
+  whizPast(origin, dir) {
+    const p = this.game.player;
+    if (!p || !p.alive) return;
+    const head = new THREE.Vector3(p.pos.x, p.pos.y + p.height * 0.92, p.pos.z);
+    const rel = new THREE.Vector3().subVectors(head, origin);
+    const along = rel.dot(dir);
+    if (along <= 0 || along > 90) return;
+    const closest = new THREE.Vector3().copy(origin).addScaledVector(dir, along);
+    const off = closest.distanceTo(head);
+    if (off > 3.2) return;
+    // pan by which side of the head the round passed
+    const right = new THREE.Vector3(-dir.z, 0, dir.x).normalize();
+    const side = rel.dot(right);
+    sfx.whiz(clamp(side / 2.2, -1, 1), along);
   }
 
   panToListener() {
@@ -826,6 +1003,30 @@ function hitscanLOS(grid, origin, dir, maxDist) {
 }
 
 // local copies of the movement primitives (avoid a cycle with player.js)
+/** drive the horizontal velocity toward (fx,fz) * target at MOVE.accel m/s² */
+function botAccelerateGround(vel, fx, fz, target, dt) {
+  const tx = fx * target, tz = fz * target;
+  const dx = tx - vel.x, dz = tz - vel.z;
+  const dl = Math.hypot(dx, dz);
+  if (dl < 1e-6) return;
+  const cur = Math.hypot(vel.x, vel.z);
+  const rate = target < cur * 0.92 ? MOVE.decel : MOVE.accel;
+  const step = rate * dt;
+  if (dl <= step) { vel.x = tx; vel.z = tz; }
+  else { const s = step / dl; vel.x += dx * s; vel.z += dz * s; }
+}
+
+/** air control — a quarter of ground authority, capped so it cannot add speed */
+function botAccelerateAir(vel, fx, fz, dt) {
+  if (!fx && !fz) return;
+  const along = vel.x * fx + vel.z * fz;
+  const add = MOVE.airSpeedCap - along;
+  if (add <= 0) return;
+  const accel = MOVE.accel * MOVE.airAccelScale * dt;
+  const gain = accel < add ? accel : add;
+  vel.x += fx * gain; vel.z += fz * gain;
+}
+
 function accelerateXZ(vel, wx, wz, wishSpeed, accel, dt) {
   const current = vel.x * wx + vel.z * wz;
   const add = wishSpeed - current;

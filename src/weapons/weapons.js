@@ -296,8 +296,9 @@ export class WeaponSystem {
       if (!hit.type) continue;
       if (hit.type === 'world') {
         this.fx.impact(hit.point, hit.normal, hit.tag, hit.dist);
-        sfx.impact(hit.tag === 'metal' ? 'metal' : (hit.tag === 'wood' ? 'wood' : 'concrete'), hit.dist);
-        if (Math.random() < 0.16) sfx.ricochet(hit.dist);
+        const pan = this.panFor(hit.point);
+        sfx.impact(hit.tag === 'metal' ? 'metal' : (hit.tag === 'wood' ? 'wood' : 'concrete'), hit.dist, pan);
+        if (Math.random() < 0.16) sfx.ricochet(hit.dist, pan);
         if (i === 0) {
           this.fx.tracer(origin.clone().addScaledVector(dir, 0.75), hit.point, { width: 0.018 * d.tracer, color: 0xffe0a0 });
         }
@@ -328,6 +329,15 @@ export class WeaponSystem {
       // no-hit tracer for feedback (already drawn on world hit)
     }
     this.game.onShoot?.(d);
+  }
+
+  /** stereo position of a world point relative to where the player is looking */
+  panFor(p) {
+    if (!p) return 0;
+    const cam = this.player.camera;
+    const dx = p.x - cam.position.x, dz = p.z - cam.position.z;
+    const yaw = Math.atan2(-dx, -dz);
+    return clamp(Math.sin(yaw - this.player.yaw), -1, 1);
   }
 
   falloff(d, dist) {
@@ -502,9 +512,12 @@ export class WeaponSystem {
     const adsRate = 1 / Math.max(0.05, d.adsTime * (wantAds ? 1 : 1.25));
     this.adsT = clamp(this.adsT + (wantAds ? adsRate : -adsRate * 1.35) * dt, 0, 1);
     this.scoped = !!d.scope && this.adsT > 0.72;
+    // sprinting pushes the FOV out a touch (MW-style speed read); the viewmodel
+    // scale below follows the FOV, so the gun does not balloon while you run
+    const sprintKick = (!this.ads && this.player.sprinting) ? 5.5 : 0;
     const targetFov = d.adsT > 0
-      ? lerp(RENDER.fov, this.scoped ? RENDER.scopeFov : d.adsFov, this.adsT)
-      : RENDER.fov;
+      ? lerp(RENDER.fov + sprintKick, this.scoped ? RENDER.scopeFov : d.adsFov, this.adsT)
+      : RENDER.fov + sprintKick;
     this.player.fov = damp(this.player.fov, targetFov, this.scoped ? 9 : 14, dt);
     this.player.ads = this.adsT > 0.4;
 
