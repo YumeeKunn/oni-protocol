@@ -6,6 +6,7 @@ import { RenderPass } from '../../libs/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from '../../libs/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from '../../libs/postprocessing/OutputPass.js';
 import { buildWorld } from './world/world.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { ColliderGrid, rayHit } from './entities/physics.js';
 import { buildNav } from './entities/nav.js';
 import { Player } from './entities/player.js';
@@ -84,6 +85,10 @@ class Game {
 
     this.scene = new THREE.Scene();
     this.scene.fog = new THREE.FogExp2(0xd8c8a7, 0.0042);
+    // real reflections: metals, glass, water and the guns pick up an HD-ish
+    // studio env so the world reads as glossy metal instead of flat plastic
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.scene.environment = pmrem.fromScene(new RoomEnvironment(0.04), 0.06).texture;
 
     // ── world ──
     this.world = buildWorld(this.scene, this.renderer);

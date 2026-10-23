@@ -217,6 +217,11 @@ export const sfx = {
     }
     // ── 2. the muzzle blast: a short downward-sweeping band of noise ──
     burst(0.1, 2800, 0.45, 0.34 * layer[2] * 2.2 * att, { slide: 380, when: delay, pan: stereo });
+    // shotguns bark: a second, punchier crack right after the first
+    if (cat === 'shotgun' && near > 0.1) {
+      burst(0.024, 8200, 0.9, 0.55 * near * att, { type: 'highpass', when: delay, pan: stereo });
+      tone(90, 52, 0.34, 'sine', 0.3 * att, delay);
+    }
     // ── 3. the body: the low punch of the weapon ──
     tone(layer[0], layer[0] * 0.4, cat === 'shotgun' || cat === 'sniper' ? 0.3 : 0.14,
       'sine', layer[1] * att, delay);
