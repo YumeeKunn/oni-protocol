@@ -31,6 +31,16 @@ const DOM_IDS = [
   'settings-body', 'controls-body', 'btn-resume', 'btn-pause-settings', 'btn-quit',
 ];
 
+// input stub used while the match countdown is running
+const FROZEN_INPUT = {
+  left: false, right: false, fire: false, jump: false, crouch: false, reload: false,
+  mouse: { left: false, right: false },
+  pressed: () => false,
+  peekLook: () => ({ x: 0, y: 0 }),
+  consumeLook: () => ({ x: 0, y: 0 }),
+  consumeWheel: () => 0,
+};
+
 class Game {
   constructor(canvas) {
     this.canvas = canvas;
@@ -359,6 +369,13 @@ class Game {
     }
 
     const cmd = this.buildCmd(dt);
+    // nobody moves during the "MATCH BEGINS IN 3" countdown — the squads hold
+    // their spawns and the player cannot walk, shoot or jump
+    const frozen = !!(this.match && this.match.state === 'countdown');
+    if (frozen) {
+      cmd.forward = 0; cmd.strafe = 0; cmd.sprint = false; cmd.crouch = false;
+      cmd.jump = false; cmd.jumpPressed = false; cmd.fire = false; cmd.ads = false;
+    }
     this.player.lastStrafe = cmd.strafe;
 
     if (this.player.alive) {
@@ -368,10 +385,12 @@ class Game {
       this.updateKillcam(dt);
     }
 
-    this.weapons.update(dt, input, cmd, this.time);
+    this.weapons.update(dt, frozen ? FROZEN_INPUT : input, cmd, this.time);
 
-    const ents = this.entities;
-    for (let i = 1; i < ents.length; i++) if (ents[i].update) ents[i].update(dt, this.time);
+    if (!frozen) {
+      const ents = this.entities;
+      for (let i = 1; i < ents.length; i++) if (ents[i].update) ents[i].update(dt, this.time);
+    }
 
     this.match?.update(dt);
     this.updateRespawn(dt);

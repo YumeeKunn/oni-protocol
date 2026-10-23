@@ -202,6 +202,8 @@ export class HUD {
       if (showBreath) this.breathFill.style.width = `${clamp(ws.holdBreath / 6, 0, 1) * 100}%`;
       // scope overlay
       this.scopeEl.classList.toggle('on', ws.scoped);
+      // the centre announcement would sit right on the reticle — hide it
+      this.announceEl.classList.toggle('scoped', ws.scoped);
       // crosshair
       const spreadPx = 8 + (g.weapons.def ? Math.min(26, g.weapons.spreadNow(p.speed > 1.2, !p.onGround) * 3.4) : 0);
       this.crossEl.style.setProperty('--gap', `${spreadPx}px`);

@@ -124,22 +124,22 @@ function buildTerrain(scene, kit) {
   }
   geo.computeVertexNormals();
 
-  // uv = metric tiling for the sand albedo, uv2 = coarser tile for the ripple normals
+  // uv = metric tiling for the grass albedo, uv2 = coarser tile for the blade normals
   const uv = new Float32Array(pos.count * 2);
   const uv2 = new Float32Array(pos.count * 2);
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), z = pos.getZ(i);
-    uv[i * 2] = x / 9; uv[i * 2 + 1] = z / 9;
+    uv[i * 2] = x / 6.5; uv[i * 2 + 1] = z / 6.5;
     uv2[i * 2] = x / 3.2; uv2[i * 2 + 1] = z / 3.2;
   }
   geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   geo.setAttribute('uv1', new THREE.BufferAttribute(uv2, 2));
 
-  const sand = kit.sand;
-  const map = sand.map.clone();
+  const grass = kit.grass || kit.sand;
+  const map = grass.map.clone();
   map.needsUpdate = true;
   map.wrapS = map.wrapT = THREE.RepeatWrapping;
-  const nrm = sand.bumpNormal.clone();
+  const nrm = grass.bumpNormal.clone();
   nrm.needsUpdate = true;
   nrm.channel = 1;
   nrm.wrapS = nrm.wrapT = THREE.RepeatWrapping;

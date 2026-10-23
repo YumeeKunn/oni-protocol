@@ -30,21 +30,25 @@ export const DURATIONS = [5, 10, 15, 20];   // minutes
 export const DIFFICULTIES = {
   recruit: {
     id: 'recruit', name: 'RECRUIT',
+    desc: 'Slow reactions, loose aim — they miss a lot',
     dmg: 0.65, hp: 0.85, spread: 2.1, reaction: 0.42, fireRate: 0.75, speed: 0.9, accuracyRange: 0.75,
     engage: 0.72, aggr: 0.55,
   },
   regular: {
     id: 'regular', name: 'REGULAR',
+    desc: 'Balanced — pushes in and fights at close range',
     dmg: 1.0, hp: 1.0, spread: 1.0, reaction: 0.24, fireRate: 1.0, speed: 1.0, accuracyRange: 1.0,
     engage: 0.88, aggr: 0.72,
   },
   veteran: {
     id: 'veteran', name: 'VETERAN',
+    desc: 'Sharp reactions, holds the lane and flanks',
     dmg: 1.3, hp: 1.15, spread: 0.68, reaction: 0.15, fireRate: 1.2, speed: 1.06, accuracyRange: 1.2,
     engage: 1.0, aggr: 0.88,
   },
   elite: {
     id: 'elite', name: 'ELITE',
+    desc: 'Brutal — fast, accurate, never stops closing',
     dmg: 1.6, hp: 1.3, spread: 0.45, reaction: 0.08, fireRate: 1.45, speed: 1.12, accuracyRange: 1.45,
     engage: 1.1, aggr: 1.0,
   },
@@ -99,18 +103,18 @@ export const ARENA = { half: 52 };
  * and there is a short slide-off tail instead of a dead stop.
  */
 export const MOVE = {
-  walk: 4.57,
-  sprint: 7.01,
-  crouch: 2.44,
+  walk: 4.25,
+  sprint: 6.15,
+  crouch: 2.25,
   strafeScale: 0.92,    // slower sideways
   backScale: 0.8,       // slower still backwards
   adsMul: 0.5,          // aiming costs half your speed
-  accel: 92,            // m/s² toward the target velocity
-  decel: 52,            // decelerating to a slower target
-  stopDecel: 30,        // extra braking when the stick is released
-  airAccelScale: 0.25,  // air control is a quarter of ground authority
+  accel: 66,            // m/s² toward the target velocity
+  decel: 42,            // decelerating to a slower target
+  stopDecel: 24,        // extra braking when the stick is released
+  airAccelScale: 0.22,  // air control is a fraction of ground authority
   airSpeedCap: 3.4,     // air control may not add speed past this
-  airAccel: 23,         // legacy key (accel * airAccelScale)
+  airAccel: 15,         // legacy key (accel * airAccelScale)
   airWishCap: 3.4,
   friction: 6.6,        // legacy key
   stopSpeed: 3.0,       // legacy key

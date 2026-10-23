@@ -130,6 +130,40 @@ export function pots(B, x, z, n = 3) {
   }
 }
 
+/**
+ * Forest tree: tapered trunk + 3-5 stacked foliage blobs.
+ * Solid small collider so trunks block movement and bullets (tag wood).
+ */
+export function tree(B, x, z, o = {}) {
+  const h = o.h ?? 3.1 + Math.random() * 1.6;
+  const trunkR = 0.16 * (h / 3.4);
+  // trunk with a slight lean
+  B.cyl(trunkR * 0.55, trunkR, h, 'wood', x, 0, z, {
+    seg: 7, rep: 1.4, solid: true, tag: 'wood',
+    matOpts: { color: 0x6e5233, roughness: 0.95 },
+  });
+  // roots
+  for (let i = 0; i < 3; i++) {
+    const a = rand(0, 6.28) + i * 2.1;
+    B.prop(new THREE.DodecahedronGeometry(trunkR * 0.9, 0), 'wood', x + Math.sin(a) * trunkR * 2, 0.05, z + Math.cos(a) * trunkR * 2, a, {
+      matOpts: { color: 0x5c4429, roughness: 1 }, scaleV: new THREE.Vector3(1.6, 0.5, 1),
+    });
+  }
+  // foliage: low-poly blobs stacked, drifting olive greens
+  const foliage = new THREE.Color().setHSL(0.25 + Math.random() * 0.04, 0.28 + Math.random() * 0.12, 0.16 + Math.random() * 0.09).getHex();
+  const tiers = o.dense === false ? 2 : 3;
+  for (let i = 0; i < tiers; i++) {
+    const r = (1.15 - i * 0.3) * (h / 3.4);
+    const yTop = h * 0.78 + i * h * 0.16;
+    const blob = B.prop(new THREE.IcosahedronGeometry(r, 1), 'stucco', x + rand(-0.15, 0.15), yTop, z + rand(-0.15, 0.15), rand(0, 6.28), {
+      matOpts: { color: foliage, roughness: 0.92, flatShading: true },
+      scaleV: new THREE.Vector3(1, 0.62 + Math.random() * 0.2, 1), cast: true,
+    });
+    blob.geometry.computeVertexNormals();
+  }
+  return B;
+}
+
 export function shrub(B, x, z, s = 1) {
   const g = new THREE.PlaneGeometry(1.5 * s, 1.1 * s);
   for (let i = 0; i < 3; i++) {

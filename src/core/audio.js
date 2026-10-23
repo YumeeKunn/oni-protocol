@@ -195,23 +195,37 @@ export const sfx = {
 
     // distance: delay (speed of sound), attenuation, air absorption, wider stereo
     const delay = dist / 343;
-    const att = first ? 1 : Math.max(0.06, 1 / (1 + dist * dist * 0.0022));
-    const airLp = dist > 12 ? Math.max(600, 9000 - dist * 90) : 0;
-    const vol = (first ? 0.95 : 0.55 + att * 0.5) * att;
+    const att = first ? 1 : Math.max(0.05, 1 / (1 + dist * dist * 0.0022));
+    const airLp = dist > 10 ? Math.max(520, 11000 - dist * 105) : 0;
+    const near = Math.max(0, Math.min(1, 1 - dist / 45));   // 1 = on top of you
+    const vol = (first ? 1.0 : 0.45 + att * 0.55) * att;
+    const stereo = pan * (0.35 + Math.min(1, dist / 40) * 0.65);
 
+    // ── the recorded report carries the body ──
     if (buf) {
       playBuffer(buf, {
-        vol, rate: 0.97 + Math.random() * 0.07,
-        when: delay, pan: pan * (0.4 + Math.min(1, dist / 40) * 0.6), lp: airLp,
+        vol: vol * 1.2, rate: 0.96 + Math.random() * 0.08,
+        when: delay, pan: stereo, lp: airLp,
       });
     }
-    // punch layer: synth thump + crack, scaled by distance
-    tone(layer[0], layer[0] * 0.45, cat === 'shotgun' || cat === 'sniper' ? 0.3 : 0.14,
-      'sine', layer[1] * att * 0.9, delay);
-    burst(0.06, 4200, 0.7, layer[2] * att, { slide: 900, when: delay });
-    // travelling tail for far shots
-    if (dist > 10) {
-      burst(0.55, 320, 0.4, layer[3] * att * 0.5, { type: 'lowpass', slide: 90, when: delay + 0.11 });
+
+    // ── 1. the crack: a 12 ms high-passed snap, only up close ──
+    // this is the part that makes a gunshot read as *sharp* rather than as a thud
+    if (near > 0.12) {
+      burst(0.014, 7600, 0.7, 0.4 * near * att, { type: 'highpass', when: delay, pan: stereo });
+      burst(0.03, 4200, 1.1, 0.18 * near * att, { when: delay, pan: stereo });
+    }
+    // ── 2. the muzzle blast: a short downward-sweeping band of noise ──
+    burst(0.1, 2800, 0.45, 0.34 * layer[2] * 2.2 * att, { slide: 380, when: delay, pan: stereo });
+    // ── 3. the body: the low punch of the weapon ──
+    tone(layer[0], layer[0] * 0.4, cat === 'shotgun' || cat === 'sniper' ? 0.3 : 0.14,
+      'sine', layer[1] * att, delay);
+    // ── 4. chest thump — what you feel more than hear ──
+    if (near > 0.25) tone(52, 34, 0.22, 'sine', 0.26 * near * att, delay);
+    // ── 5. the travelling tail for anything that is not on top of you ──
+    if (dist > 8) {
+      burst(0.7, 300, 0.35, layer[3] * att * 0.6, { type: 'lowpass', slide: 80, when: delay + 0.12, pan: stereo });
+      burst(0.22, 900, 0.5, 0.1 * att, { type: 'lowpass', slide: 200, when: delay + 0.06, pan: stereo });
     }
     if (indoors) {
       tone(layer[0] * 0.5, layer[0] * 0.3, 0.22, 'sine', 0.18 * att, delay + 0.01);
@@ -278,18 +292,34 @@ export const sfx = {
   impact(mat = 'concrete', dist = 0, pan = 0) {
     if (!ready) return;
     const v = Math.max(0.03, 1 / (1 + dist * dist * 0.01));
-    if (mat === 'flesh') { burst(0.09, 420, 1.1, 0.4 * v, { type: 'lowpass' }); tone(180, 70, 0.09, 'sine', 0.24 * v); }
-    else if (mat === 'metal') { burst(0.06, 3200, 3, 0.34 * v); tone(2400, 900, 0.08, 'triangle', 0.14 * v); }
-    else if (mat === 'wood') { burst(0.07, 900, 1.6, 0.32 * v, { slide: 300 }); }
-    else { burst(0.06, 1800, 1.2, 0.3 * v, { slide: 600 }); tone(420, 150, 0.05, 'square', 0.1 * v); }
+    if (mat === 'flesh') {
+      // wet slap: a short low thud with a soft top
+      burst(0.09, 420, 1.1, 0.4 * v, { type: 'lowpass', pan });
+      tone(180, 70, 0.09, 'sine', 0.24 * v);
+    } else if (mat === 'metal') {
+      // sharp ping + a short ring
+      burst(0.025, 5600, 3.4, 0.3 * v, { pan });
+      tone(2100 + Math.random() * 900, 700, 0.13, 'triangle', 0.12 * v);
+      burst(0.05, 3200, 2.6, 0.1 * v, { when: 0.01, pan });
+    } else if (mat === 'wood') {
+      // dull knock
+      burst(0.07, 900, 1.6, 0.3 * v, { slide: 300, pan });
+      tone(150, 80, 0.07, 'sine', 0.1 * v);
+    } else {
+      // stone: a bright chip plus a puff of dust
+      burst(0.03, 3800, 1.8, 0.26 * v, { pan });
+      burst(0.12, 760, 0.6, 0.14 * v, { type: 'lowpass', slide: 220, pan });
+    }
   },
 
   ricochet(dist = 0, pan = 0) {
     if (!ready) return;
     const v = Math.max(0.04, 1 / (1 + dist * dist * 0.008));
-    const f = 1600 + Math.random() * 2600;
-    tone(f, f * (0.3 + Math.random() * 0.3), 0.22, 'sawtooth', 0.1 * v);
-    tone(f * 1.7, f * 0.5, 0.15, 'triangle', 0.06 * v, 0.02);
+    // a real ricochet whistles: a fast descending tone with a second harmonic
+    const f = 2400 + Math.random() * 2200;
+    tone(f, f * 0.2, 0.26, 'sine', 0.1 * v);
+    burst(0.05, f, 5, 0.09 * v, { slide: f * 0.35, pan });
+    tone(f * 1.6, f * 0.45, 0.12, 'triangle', 0.05 * v, 0.03);
   },
 
   whoosh(dist = 0) {

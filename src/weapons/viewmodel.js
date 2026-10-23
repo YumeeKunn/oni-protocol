@@ -46,6 +46,46 @@ function tube(parent, r1, r2, len, mat, x, y, z, rx = Math.PI / 2) {
   return part(parent, g, mat, x, y, z, rx, 0, 0);
 }
 
+// ── shared detail helpers ──
+
+/** picatinny rail: a base bar with raised slots, so it reads as a rail */
+function picRail(g, m, z0, z1, y, w = 0.038) {
+  part(g, B(w, 0.007, z1 - z0, 0.3), m.iron, 0, y, (z0 + z1) / 2);
+  const n = Math.max(2, Math.round((z1 - z0) / 0.026));
+  for (let i = 0; i < n; i++) {
+    const z = z0 + (i + 0.5) * (z1 - z0) / n;
+    part(g, B(w, 0.011, 0.013, 0.2), m.iron, 0, y + 0.008, z);
+  }
+}
+
+/** circular hooded front sight — the ring is what you actually aim through */
+function hoodedFront(g, m, y, z, r = 0.0115) {
+  part(g, B(0.032, 0.02, 0.026, 0.2), m.iron, 0, y - 0.006, z);                 // base
+  part(g, new THREE.TorusGeometry(r, 0.0032, 5, 12), m.iron, 0, y + 0.006, z, Math.PI / 2, 0, 0);
+  part(g, B(0.005, 0.016, 0.005, 0.2), m.dark, 0, y + 0.002, z);                 // post
+}
+
+/** rear diopter: a round adjustable aperture in a small housing */
+function diopter(g, m, y, z) {
+  part(g, B(0.034, 0.026, 0.018, 0.2), m.iron, 0, y, z);
+  part(g, new THREE.TorusGeometry(0.0085, 0.0028, 5, 12), m.dark, 0, y + 0.002, z - 0.01, Math.PI / 2, 0, 0);
+}
+
+/** trigger guard + trigger blade */
+function triggerGroup(g, m, y, z) {
+  part(g, new THREE.TorusGeometry(0.019, 0.0045, 5, 10, Math.PI * 1.1), m.polymer, 0, y, z, 0, 0, Math.PI * 0.95);
+  part(g, B(0.006, 0.022, 0.008, 0.2), m.dark, 0, y + 0.006, z, 0.25, 0, 0);
+}
+
+/** a magazine built from two slightly angled segments so it curves */
+function curvedMag(g, m, y, z, w = 0.036, h = 0.16, d = 0.072) {
+  const a = part(g, B(w, h * 0.62, d, 0.3), m.poly2, 0, y - h * 0.31, z, 0.12, 0, 0);
+  const b = part(g, B(w * 0.96, h * 0.5, d * 0.94, 0.3), m.poly2, 0, y - h * 0.72, z + 0.008, 0.3, 0, 0);
+  a.geometry.translate(0, 0, 0);
+  b.geometry.translate(0, 0, 0);
+  return a;
+}
+
 // ── gloved hands (a forearm + glove per side) ──
 function hand(kit, side = 1) {
   const g = new THREE.Group();
@@ -156,23 +196,34 @@ function baseRig(kit, name) {
 export function buildM4A1(kit) {
   const m = mats(kit);
   const g = baseRig(kit, 'm4a1');
-  part(g, B(0.052, 0.075, 0.3, 0.4), m.iron, 0, 0, -0.06);                 // upper receiver
+  // ── receiver ──
+  part(g, B(0.052, 0.075, 0.3, 0.4), m.iron, 0, 0, -0.06);                 // upper receiver (cast iron)
   part(g, B(0.05, 0.062, 0.2, 0.4), m.polymer, 0, -0.005, 0.06);           // lower receiver
   part(g, B(0.03, 0.045, 0.05, 0.2), m.metal, 0, 0.052, -0.03);            // charging handle
+  part(g, B(0.012, 0.026, 0.022, 0.2), m.dark, 0, 0.03, -0.115);           // ejection port
+  part(g, B(0.012, 0.02, 0.016, 0.2), m.metal, 0, -0.012, 0.075);          // selector switch
+  // ── rail + sights ──
+  picRail(g, m, -0.21, 0.03, 0.041);
+  hoodedFront(g, m, 0.05, -0.2);
+  diopter(g, m, 0.05, 0.05);
+  // ── handguard with vents ──
   part(g, B(0.048, 0.05, 0.24, 0.4), m.poly2, 0, -0.002, -0.31);           // handguard
-  for (let i = 0; i < 6; i++) part(g, B(0.052, 0.012, 0.02, 0.2), m.iron, 0, 0.028, -0.23 - i * 0.037);   // rail
-  part(g, B(0.02, 0.055, 0.03, 0.2), m.iron, 0, 0.055, -0.2);              // front sight post
-  part(g, B(0.038, 0.014, 0.02, 0.2), m.iron, 0, 0.032, -0.2);             // front sight wings
-  part(g, B(0.036, 0.048, 0.05, 0.2), m.iron, 0, 0.052, 0.05);             // rear sight block
-  part(g, B(0.028, 0.014, 0.03, 0.2), m.dark, 0, 0.062, 0.055);            // aperture
+  for (let i = 0; i < 5; i++) {
+    part(g, B(0.05, 0.012, 0.026, 0.2), m.dark, 0, 0.012, -0.235 - i * 0.037);
+  }
+  // ── barrel + flash hider ──
   tube(g, 0.011, 0.011, 0.24, m.barrel, 0, 0.005, -0.5);
-  tube(g, 0.014, 0.014, 0.06, m.dark, 0, 0.005, -0.64);                    // muzzle device
-  const mag = part(g, B(0.036, 0.16, 0.075, 0.3), m.poly2, 0, -0.11, 0.02, 0.28, 0, 0);
-  mag.geometry.translate(0, -0.02, 0);
+  tube(g, 0.015, 0.015, 0.055, m.dark, 0, 0.005, -0.638);                  // muzzle device
+  for (let i = 0; i < 3; i++) part(g, B(0.032, 0.006, 0.008, 0.2), m.dark, 0, 0.005, -0.62 + i * 0.016);
+  // ── magazine (slightly curved), grip, trigger ──
+  const mag = curvedMag(g, m, -0.035, 0.02, 0.036, 0.17, 0.075);
   part(g, B(0.03, 0.075, 0.035, 0.3), m.polymer, 0, -0.06, 0.035, 0.12, 0, 0);   // pistol grip
-  part(g, B(0.045, 0.075, 0.19, 0.4), m.poly2, 0, -0.012, 0.23);                 // stock
+  triggerGroup(g, m, -0.038, 0.055);
+  // ── stock: buffer tube, cheek riser, butt pad ──
+  tube(g, 0.014, 0.014, 0.2, m.metal, 0, 0.008, 0.2, Math.PI / 2);
+  part(g, B(0.045, 0.075, 0.19, 0.4), m.poly2, 0, -0.012, 0.23);                 // stock body
+  part(g, B(0.038, 0.022, 0.13, 0.3), m.polymer, 0, 0.028, 0.2);                   // cheek riser
   part(g, B(0.05, 0.09, 0.03, 0.3), m.polymer, 0, -0.02, 0.33);                  // butt pad
-  part(g, B(0.012, 0.026, 0.02, 0.2), m.metal, 0, 0.03, -0.11);                  // ejection port
   const eject = new THREE.Object3D(); eject.position.set(0.05, 0.02, -0.1); g.add(eject);
   const h = hands(kit, g, [0.022, -0.075, 0.075, 0.15, -0.1, 0], [-0.03, -0.045, -0.3, 0.1, 0.25, 0.2]);
   return finish(kit, g, { muzzleZ: -0.7, aim: { x: 0, y: -0.062, z: 0.05 }, eject, mag, hands: h, sightH: 0.062 });
@@ -185,6 +236,7 @@ export function buildMP5(kit) {
   const body = tube(g, 0.032, 0.032, 0.42, m.iron, 0, 0, -0.02);           // tubular receiver
   body.rotation.x = Math.PI / 2;
   part(g, B(0.05, 0.055, 0.3, 0.4), m.poly2, 0, -0.012, -0.1);
+  picRail(g, m, -0.16, 0.02, 0.03, 0.034);
   // hooded front sight: ring + post
   const hood = new THREE.Mesh(new THREE.TorusGeometry(0.028, 0.006, 6, 14), m.iron);
   hood.position.set(0, 0.042, -0.24);
@@ -194,6 +246,8 @@ export function buildMP5(kit) {
   const drum = tube(g, 0.022, 0.022, 0.02, m.iron, 0, 0.042, 0.06, 0);
   drum.rotation.set(0, 0, Math.PI / 2);
   part(g, B(0.03, 0.02, 0.03, 0.2), m.iron, 0, 0.035, 0.06);
+  part(g, B(0.03, 0.016, 0.04, 0.2), m.dark, 0, 0.042, 0.075);        // charging handle
+  part(g, B(0.012, 0.022, 0.02, 0.2), m.dark, 0, 0.01, -0.02);         // ejection port
   // curved magazine
   const mag = new THREE.Group();
   mag.position.set(0, -0.075, -0.06);
@@ -219,10 +273,14 @@ export function buildM1014(kit) {
   tube(g, 0.031, 0.031, 0.34, m.iron, 0, 0.012, -0.24);                  // heat shield
   for (let i = 0; i < 7; i++) part(g, B(0.07, 0.014, 0.012, 0.15), m.iron, 0, 0.042, -0.08 - i * 0.045);
   part(g, B(0.06, 0.075, 0.26, 0.4), m.iron, 0, 0.004, 0.06);            // receiver
+  picRail(g, m, -0.02, 0.16, 0.044, 0.036);
   part(g, B(0.075, 0.05, 0.16, 0.4), m.poly2, 0, -0.02, -0.12);          // polymer forend
+  for (let i = 0; i < 4; i++) part(g, B(0.077, 0.008, 0.012, 0.2), m.dark, 0, 0.008, -0.07 - i * 0.03);  // forend grooves
   part(g, B(0.02, 0.03, 0.02, 0.15), m.iron, 0, 0.062, -0.3);            // raised front sight
   part(g, B(0.034, 0.014, 0.02, 0.15), m.iron, 0, 0.075, -0.3);
   part(g, B(0.03, 0.03, 0.02, 0.15), m.iron, 0, 0.058, 0.16);            // rear ghost ring
+  part(g, new THREE.TorusGeometry(0.009, 0.0026, 5, 12), m.dark, 0, 0.062, 0.15, Math.PI / 2, 0, 0);
+  part(g, B(0.02, 0.014, 0.05, 0.2), m.poly2, 0.03, -0.03, -0.12);       // shell carrier
   part(g, B(0.028, 0.07, 0.035, 0.3), m.polymer, 0, -0.062, 0.05, 0.14, 0, 0);
   part(g, B(0.05, 0.08, 0.2, 0.4), m.poly2, 0, -0.012, 0.24);
   part(g, B(0.055, 0.095, 0.03, 0.3), m.polymer, 0, -0.02, 0.34);
@@ -244,7 +302,10 @@ export function buildL96A1(kit) {
   part(g, B(0.045, 0.07, 0.2, 0.4), m.polymer, 0, -0.03, 0.3);           // buttstock
   part(g, B(0.05, 0.05, 0.04, 0.3), m.band, 0, -0.035, 0.4);             // cheek rest
   part(g, B(0.016, 0.06, 0.02, 0.15), m.metal, 0.032, 0.005, 0.05, 0, 0, -0.5);  // bolt handle
+  part(g, new THREE.SphereGeometry(0.011, 8, 6), m.metal, 0.055, -0.028, 0.05); // bolt knob
   part(g, B(0.024, 0.024, 0.03, 0.15), m.metal, 0.046, -0.01, 0.05);
+  part(g, B(0.052, 0.03, 0.12, 0.3), m.poly2, 0, -0.045, -0.02);            // thumbhole chassis
+  part(g, B(0.046, 0.02, 0.1, 0.3), m.polymer, 0, -0.028, 0.02);
   // scope
   const scope = new THREE.Group();
   scope.position.set(0, 0.062, -0.06);
@@ -256,7 +317,10 @@ export function buildL96A1(kit) {
   part(scope, new THREE.CircleGeometry(0.026, 16), m.glass, 0, 0, 0.196);
   tube(scope, 0.014, 0.014, 0.03, m.dark, 0, 0.03, 0, 0, 0, Math.PI / 2); // turret
   tube(scope, 0.012, 0.012, 0.03, m.dark, 0.03, 0, 0, 0, 0, Math.PI / 2);
-  for (const z of [-0.06, 0.06]) part(g, B(0.03, 0.05, 0.02, 0.15), m.metal, 0, 0.036, z);   // rings
+  for (const z of [-0.06, 0.06]) {
+    part(g, B(0.03, 0.05, 0.02, 0.15), m.metal, 0, 0.036, z);              // rings
+    part(g, B(0.034, 0.016, 0.026, 0.15), m.dark, 0, 0.062, z);             // ring caps
+  }
   // folded bipod
   part(g, B(0.012, 0.012, 0.2, 0.2), m.metal, 0.03, -0.03, -0.3, 0.2, 0, 0);
   part(g, B(0.012, 0.012, 0.2, 0.2), m.metal, -0.03, -0.03, -0.3, 0.2, 0, 0);
@@ -277,7 +341,9 @@ export function buildM9(kit) {
   part(g, B(0.012, 0.016, 0.02, 0.15), m.dark, 0, 0.048, -0.13);         // front sight
   part(g, B(0.022, 0.018, 0.02, 0.15), m.dark, 0, 0.05, 0.03);           // rear sight
   part(g, B(0.028, 0.02, 0.028, 0.15), m.metal, 0, 0.03, 0.06);          // hammer
+  for (let i = 0; i < 5; i++) part(g, B(0.034, 0.03, 0.006, 0.2), m.dark, 0, 0.03, -0.005 + i * 0.014);  // slide serrations
   part(g, B(0.03, 0.09, 0.042, 0.3), m.polymer, 0, -0.05, -0.005, 0.16, 0, 0);   // grip
+  part(g, B(0.008, 0.02, 0.008, 0.2), m.dark, 0, 0.0, 0.012, 0.2, 0, 0);         // trigger
   part(g, B(0.028, 0.09, 0.03, 0.3), m.poly2, 0, -0.05, -0.02, 0.16, 0, 0);      // magazine in grip
   part(g, B(0.026, 0.05, 0.02, 0.2), m.iron, 0, 0.012, 0.05, -0.2, 0, 0);        // trigger guard
   const mag = new THREE.Group(); mag.position.set(0, -0.06, -0.01); g.add(mag);

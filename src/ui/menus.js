@@ -83,7 +83,13 @@ export class Menus {
 
     // ── match setup rows ──
     this.row('row-teamsize', 'TEAM SIZE', TEAM_SIZES.map(n => ({ v: n, label: `${n}v${n}` })), 'teamSize');
-    this.row('row-difficulty', 'BOT SKILL', Object.values(DIFFICULTIES).map(d => ({ v: d.id, label: d.name })), 'difficulty');
+    this.row('row-difficulty', 'BOT DIFFICULTY', Object.values(DIFFICULTIES).map(d => ({ v: d.id, label: d.name })), 'difficulty');
+    {
+      // one line that says what the selected skill level actually does
+      const wrap = $('row-difficulty');
+      const note = el('i', 'row-note', DIFFICULTIES[this.settings.difficulty]?.desc || '');
+      wrap.appendChild(note);
+    }
     this.row('row-killlimit', 'KILL LIMIT', KILL_LIMITS.map(n => ({ v: n, label: String(n) })), 'killLimit');
     this.row('row-duration', 'DURATION', DURATIONS.map(m => ({ v: m, label: `${m} MIN` })), 'duration');
 
@@ -157,6 +163,26 @@ export class Menus {
       row.appendChild(el('i', 'note', note));
       wrap.appendChild(row);
     };
+    const mkPills = (label, key, opts, note = '') => {
+      const row = el('div', 's-row');
+      const grp = el('div', 'grp');
+      for (const o of opts) {
+        const b = el('button', 'pill' + (this.settings[key] === o.v ? ' on' : ''), o.label);
+        b.onclick = () => {
+          this.settings[key] = o.v;
+          sfx.ui('click');
+          this.build();          // rebuild so both screens stay in sync
+          this.buildSettings();
+        };
+        grp.appendChild(b);
+      }
+      row.appendChild(el('span', 'lbl', label));
+      row.appendChild(grp);
+      row.appendChild(el('i', 'note', note));
+      wrap.appendChild(row);
+    };
+    mkPills('BOT DIFFICULTY', 'difficulty', Object.values(DIFFICULTIES).map(d => ({ v: d.id, label: d.name })),
+      DIFFICULTIES[this.settings.difficulty]?.desc || '');
     mkSlider('MOUSE SENSITIVITY', 'sensitivity', 0.0006, 0.006, 0.0001, v => v.toFixed(4));
     mkSlider('MASTER VOLUME', 'volume', 0, 1, 0.01, v => `${Math.round(v * 100)}%`);
     mkSlider('AMBIENCE', 'ambience', 0, 1, 0.01, v => `${Math.round(v * 100)}%`);

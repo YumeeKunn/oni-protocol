@@ -43,6 +43,9 @@ const out = await page.evaluate(() => {
   const len = Math.hypot(dx, dz) || 1;
   const yaw = Math.atan2(-dx / len, -dz / len);
   g.player.reset({ x: low.x - (dx / len) * 1.2, z: low.z - (dz / len) * 1.2, yaw });
+  // fast-forward the pre-match countdown so the walk starts live
+  let guard = 0;
+  while (g.match && g.match.state === 'countdown' && guard++ < 400) g.step(1 / 60);
   g.script = { forward: 1, lookX: 0 };
   const before = g.player.pos.y;
   for (let i = 0; i < 300; i++) g.step(1 / 60);

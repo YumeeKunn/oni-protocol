@@ -19,6 +19,32 @@ function softTex(inner = 'rgba(255,255,255,1)', outer = 'rgba(255,255,255,0)') {
   return t;
 }
 
+/** irregular dark-red splat: a core blob with satellite droplets */
+function bloodTex() {
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = 96;
+  const c = cv.getContext('2d');
+  c.clearRect(0, 0, 96, 96);
+  const cx = 48;
+  c.fillStyle = 'rgba(96,6,8,0.95)';
+  c.beginPath(); c.ellipse(cx + 3, cx, 16 + Math.random() * 12, 12 + Math.random() * 10, Math.random() * 3, 0, 7); c.fill();
+  for (let i = 0; i < 16; i++) {   // droplets flung outward
+    const a = Math.random() * Math.PI * 2;
+    const r = 12 + Math.random() * 30;
+    c.fillStyle = `rgba(104,8,12,${0.55 + Math.random() * 0.4})`;
+    c.beginPath(); c.ellipse(cx + Math.cos(a) * r, cx + Math.sin(a) * r,
+      1.5 + Math.random() * 5, 1.2 + Math.random() * 4, a, 0, 7); c.fill();
+    if (Math.random() < 0.4) {   // smear between core and droplet
+      c.strokeStyle = 'rgba(96,6,8,0.5)'; c.lineWidth = 1 + Math.random() * 2;
+      c.beginPath(); c.moveTo(cx + Math.cos(a) * 14, cx + Math.sin(a) * 14);
+      c.lineTo(cx + Math.cos(a) * r, cx + Math.sin(a) * r); c.stroke();
+    }
+  }
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 function holeTex() {
   const cv = document.createElement('canvas');
   cv.width = cv.height = 64;
@@ -44,9 +70,10 @@ function holeTex() {
 }
 
 export class Effects {
-  constructor(scene, kit) {
+  constructor(scene, kit, groundY = null) {
     this.scene = scene;
     this.kit = kit;
+    this.groundY = groundY;
     this.t = 0;
 
     // ── particle pool (single Points object, custom shader for per-particle size/alpha) ──
@@ -99,6 +126,23 @@ export class Effects {
       this.decals.push({ mesh: m, life: 0 });
     }
     this.dCursor = 0;
+
+    // ── blood splash pool (dark red splats that sit on the ground) ──
+    this.bloodMat = new THREE.MeshBasicMaterial({
+      map: bloodTex(), transparent: true, depthWrite: false,
+      opacity: 0.92, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6,
+    });
+    const bg = new THREE.PlaneGeometry(0.5, 0.5);
+    bg.rotateX(-Math.PI / 2);
+    this.bloods = [];
+    for (let i = 0; i < 26; i++) {
+      const m = new THREE.Mesh(bg, this.bloodMat);
+      m.visible = false;
+      m.renderOrder = 4;
+      scene.add(m);
+      this.bloods.push({ mesh: m, life: 0 });
+    }
+    this.bCursor = 0;
 
     // ── tracers ──
     this.tracerMat = new THREE.MeshBasicMaterial({ color: 0xffe6a0, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
@@ -192,6 +236,7 @@ export class Effects {
       this.spawn(point.x, point.y, point.z, { life: 0.09, size: 0.5, col: [1, 0.85, 0.5, 0.85], drag: 6 });
     }
     if (!blood) this.decal(point, n, tag);
+    else this.goreOnGround(point, Math.max(0.9, 1.25 - dist * 0.012));
   }
 
   surfaceColor(tag) {
@@ -206,6 +251,21 @@ export class Effects {
     }
   }
 
+  /** ground-level blood pool under a flesh hit */
+  goreOnGround(point, scale = 1) {
+    if (!this.bloods) return;
+    const gy = this.groundY ? this.groundY(point.x, point.z) : 0;
+    if (point.y < gy - 0.4 || point.y > gy + 2.4) return;   // only near the ground
+    const b = this.bloods[this.bCursor];
+    this.bCursor = (this.bCursor + 1) % this.bloods.length;
+    const m = b.mesh;
+    m.visible = true;
+    m.position.set(point.x + rand(-0.35, 0.35), gy + 0.014 + Math.random() * 0.004, point.z + rand(-0.35, 0.35));
+    m.rotation.z = Math.random() * Math.PI * 2;
+    m.scale.setScalar(scale);
+    b.life = 18;
+  }
+
   decal(point, normal, tag) {
     const d = this.decals[this.dCursor];
     this.dCursor = (this.dCursor + 1) % this.decals.length;
@@ -217,6 +277,7 @@ export class Effects {
     m.lookAt(point.clone().add(normal));
     m.rotateZ(Math.random() * Math.PI * 2);
     const s = rand(0.75, 1.45) * (tag === 'cloth' || tag === 'sandbag' || tag === 'sandbags' ? 1.5 : 1);
+
     m.scale.setScalar(s);
     d.life = 26;
   }
@@ -325,6 +386,14 @@ export class Effects {
       if (d.life <= 0) d.mesh.visible = false;
       else if (d.life < 3) d.mesh.material = this.decalMat;
     }
+    // blood pools
+    for (const b of this.bloods) {
+      if (b.life <= 0) continue;
+      b.life -= dt;
+      if (b.life <= 0) b.mesh.visible = false;
+      else if (b.life < 2.5) b.mesh.material.opacity = Math.max(0, (b.life / 2.5) * 0.92);
+      else b.mesh.material.opacity = 0.92;
+    }
     // casings
     for (const c of this.casings) {
       if (c.life <= 0) continue;
@@ -346,6 +415,31 @@ export class Effects {
   }
 
   /** first-person muzzle light bounce (brightens nearby walls for a frame) */
+  /** big kill splash: high-momentum spray + a mist puff, boldest at close range */
+  bloodKill(point, dir, dist = 0) {
+    const n = dir && dir.lengthSq ? dir.clone() : new THREE.Vector3(0, 1, 0);
+    if (dist > 46) return;
+    const k = dist < 12 ? 1.35 : 1;
+    for (let i = 0; i < Math.round(22 * k); i++) {
+      const sp = rand(1.2, 5.2) * k;
+      const d = new THREE.Vector3(n.x + rand(-0.8, 0.8), n.y + rand(-0.4, 1.1), n.z + rand(-0.8, 0.8)).normalize();
+      this.spawn(point.x, point.y, point.z, {
+        vx: d.x * sp, vy: d.y * sp, vz: d.z * sp,
+        life: rand(0.5, 1.2), size: rand(0.12, 0.3) * k,
+        grav: 8.5, drag: 2.2, grow: 0.3,
+        col: [0.55 + Math.random() * 0.12, 0.02, 0.03, 0.95],
+      });
+    }
+    // mist
+    for (let i = 0; i < 8; i++) {
+      this.spawn(point.x + rand(-0.2, 0.2), point.y + rand(0, 0.4), point.z + rand(-0.2, 0.2), {
+        vx: rand(-0.8, 0.8), vy: rand(0.3, 1.2), vz: rand(-0.8, 0.8),
+        life: rand(0.4, 0.9), size: rand(0.5, 1.0), grav: -0.6, grow: 1.4, drag: 3,
+        col: [0.5, 0.05, 0.05, rand(0.28, 0.5)],
+      });
+    }
+  }
+
   muzzle(pos, dir, strength = 1) {
     this.muzzleLight.position.copy(pos).addScaledVector(dir, 0.4);
     this.muzzleLight.intensity = 26 * strength;

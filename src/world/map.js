@@ -9,6 +9,7 @@ import * as THREE from 'three';
 import { archGeo, barrierGeo, boxGeo, domeGeo, latheGeo } from '../core/geo.js';
 import { rand, pick, chance, deg } from '../core/utils.js';
 import {
+  tree,
   crate, crateStack, barrel, tyreStack, wasteBin, pallet, pots, shrub,
   townhouse, awning, awningRow, acUnit, downspout, streetLamp, wire, marketStall,
   fruitCart, hangingSign, mosque, shed, container, shelfRack, forklift,
@@ -65,6 +66,9 @@ export function buildMap(B) {
 
   // ═════════════ street life: wrecks, drums, ruined buildings ═════════════
   streetPass(B);
+
+  // ═════════════ forest edge: trees, bushes, pond ═════════════
+  forestPass(B);
 
   // ═════════════ south: alpha base ═════════════
   alphaPass(B, S.alpha);
@@ -502,6 +506,85 @@ function streetPass(B) {
   barrel(B, 17.5, -20.5);
   wasteBin(B, 12.0, 24.0);
   wasteBin(B, -12.0, -24.0);
+}
+
+// ═══════════════════════════════════════════════════════════════
+/**
+ * Forest overgrowth pass: the town is being reclaimed by the jungle.
+ * A tree belt just inside the cliff ring, corner groves in the dune flats,
+ * and a stone-edged pond with living water on the flats.
+ */
+function forestPass(B) {
+  // ── pond: carved into the flats at 27°, stone lip all around ──
+  const px = -33, pz = 36;
+  B.pad(7.5, 10, 'grass', px, pz, 0.012, { rep: 2.2 });          // grass apron
+  B.pad(9.5, 12, 'grass', px, pz, 0.008, { rep: 2.6 });
+  // dirt rim
+  B.pad(7.0, 9.4, 'sand', px, pz, 0.014, { rep: 1.8, matOpts: { color: 0x8f7752 } });
+  // water surface sits just below the lip so the bank casts a shadowline
+  const water = B.prop(new THREE.PlaneGeometry(6.4, 8.6, 24, 32), 'concrete', px, 0.06, pz, 0, {
+    mat: new THREE.MeshStandardMaterial({
+      map: null, roughness: 0.12, metalness: 0.55,
+      color: 0x2b5f60, transparent: true, opacity: 0.86,
+      emissive: 0x06222a, emissiveIntensity: 0.5,
+    }),
+    recv: true, cast: false,
+  });
+  water.geometry.rotateX(-Math.PI / 2);
+  const wm = water.material;
+  const wkit = B.kit.water;
+  const wmap = wkit.map.clone(); wmap.needsUpdate = true;
+  wmap.wrapS = wmap.wrapT = THREE.RepeatWrapping; wmap.repeat.set(3, 4);
+  const wnrm = wkit.bumpNormal.clone(); wnrm.needsUpdate = true;
+  wnrm.wrapS = wnrm.wrapT = THREE.RepeatWrapping; wnrm.repeat.set(3.4, 4.6);
+  wm.map = wmap; wm.normalMap = wnrm;
+  wm.normalScale.set(0.7, 0.7);
+  wm.color.setHex(0x9fd6cf);           // material colour multiplies the teal albedo lightly
+  wm.color.setHex(0xbfe4de);
+  // living water: normal map crawls, caustics drift — registered in B.anim
+  B.anim.push((dt, t) => {
+    wnrm.offset.set(t * 0.016, t * 0.011);
+    wmap.offset.set(t * 0.006, t * 0.004);
+    wm.opacity = 0.84 + Math.sin(t * 0.9) * 0.03;
+  });
+  // stone lip blocks nothing (shallow) but keeps the water visually contained
+  for (let i = 0; i < 16; i++) {
+    const t = (i / 16) * Math.PI * 2;
+    B.prop(new THREE.DodecahedronGeometry(rand(0.35, 0.6), 0), 'concrete',
+      px + Math.cos(t) * 3.5, 0.03, pz + Math.sin(t) * 4.65, rand(0, 6.28), {
+        matOpts: { color: 0x9a938a, roughness: 1 }, scaleV: new THREE.Vector3(1.3, 0.5, 1),
+      });
+  }
+  // reeds + bushes on the bank, trees leaning over it
+  for (let i = 0; i < 7; i++) bush(B, px + rand(-4.5, 4.5), pz + rand(-6, 6), rand(0.7, 1.2));
+  tree(B, px + 5.4, pz + 3.2, { h: 4.2 });
+  tree(B, px - 4.8, pz - 4.4, { h: 3.6 });
+  B.zone('THE POND', px, pz, 14);
+
+  // ── forest belt just inside the cliff ring (skips the four road mouths) ──
+  const ROAD = [[0, 46], [0, -46], [43, 0], [-43, 0]];
+  let seedI = 3;
+  const seeded = () => (seedI = (seedI * 16807) % 2147483647) / 2147483647;
+  for (let i = 0; i < 58; i++) {
+    const t = (i / 58) * Math.PI * 2 + seeded() * 0.08;
+    const r = 44 + seeded() * 5.5;
+    const x = Math.cos(t) * r, z = Math.sin(t) * r;
+    if (ROAD.some(([rx, rz]) => Math.hypot(x - rx, z - rz) < 11)) continue;
+    tree(B, x, z, { h: 3.2 + seeded() * 2.4, dense: seeded() > 0.3 });
+    if (seeded() > 0.55) bush(B, x + seeded() * 3 - 1.5, z + seeded() * 3 - 1.5, 1.3);
+  }
+  // ── corner groves in the dune flats, clear of base fences and roads ──
+  const groves = [
+    [30, -34, 5], [-34, -34, 4], [34, 30, 4],
+    [-20, 42, 3], [20, -42, 3], [-42, -14, 3], [42, 14, 3],
+  ];
+  for (const [gx, gz, n] of groves) {
+    B.pad(11, 11, 'grass', gx, gz, 0.01, { rep: 2.4 });
+    for (let i = 0; i < n; i++) {
+      tree(B, gx + seeded() * 7 - 3.5, gz + seeded() * 7 - 3.5, { h: 3 + seeded() * 2.2 });
+    }
+    for (let i = 0; i < 4; i++) bush(B, gx + seeded() * 8 - 4, gz + seeded() * 8 - 4, rand(1, 1.6));
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════

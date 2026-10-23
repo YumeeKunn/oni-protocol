@@ -312,6 +312,8 @@ export class WeaponSystem {
         const killed = ent.damage(dmg, this.player, d.name, { headshot: hit.headshot, dist: hit.dist });
         this.shotsHit += this.game.isPlayerTeam(ent) ? 0 : 1;
         this.fx.impact(hit.point, new THREE.Vector3(0, 0, 0), 'flesh', hit.dist);
+        if (killed) this.fx.bloodKill(hit.point, dir, hit.dist);
+        else if (hit.headshot && Math.random() < 0.4) this.fx.bloodKill(hit.point, dir, hit.dist);
         if (i === 0 || d.pellets === 1) {
           this.fx.tracer(origin.clone().addScaledVector(dir, 0.75), hit.point, { width: 0.02 * d.tracer, color: 0xffd0c0 });
         }

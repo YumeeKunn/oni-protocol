@@ -130,7 +130,7 @@ export function makeSand() {
 
 export function makeCobble() {
   const map = canvasOf(512, 512, (c, w, h) => {
-    c.fillStyle = '#5d554b'; c.fillRect(0, 0, w, h);
+    c.fillStyle = '#4d463e'; c.fillRect(0, 0, w, h);
     const cell = 42;
     for (let row = 0, y = 0; y < h; y += cell * 0.86, row++) {
       const off = (row % 2) * cell * 0.5;
@@ -140,7 +140,7 @@ export function makeCobble() {
         const rx = cell * (0.40 + Math.random() * 0.06);
         const ry = cell * 0.36;
         const tone = 0.84 + Math.random() * 0.34;
-        c.fillStyle = `rgb(${108 * tone | 0},${102 * tone | 0},${93 * tone | 0})`;
+        c.fillStyle = `rgb(${92 * tone | 0},${87 * tone | 0},${79 * tone | 0})`;
         c.beginPath(); c.ellipse(cx, cy, rx, ry, (Math.random() - .5) * 0.35, 0, 7); c.fill();
         c.fillStyle = `rgba(240,232,214,${0.03 + Math.random() * 0.05})`;
         c.beginPath(); c.ellipse(cx - rx * 0.2, cy - ry * 0.35, rx * 0.7, ry * 0.35, 0, 0, 7); c.fill();
@@ -165,7 +165,7 @@ export function makeCobble() {
     speckle(c, w, h, 2500, 0.25, true);
   }, false);
   const kit = { map, bump: linear(bump) };
-  kit.bumpNormal = normalFromCanvas(bump, 0.85);
+  kit.bumpNormal = normalFromCanvas(bump, 0.5);
   return kit;
 }
 
@@ -364,6 +364,73 @@ export function makeConcrete() {
   return kit;
 }
 
+// ── forest floor: mottled green with dry blade strokes and clumps ──
+export function makeGrass() {
+  const map = canvasOf(512, 512, (c, w, h) => {
+    c.fillStyle = '#54683a'; c.fillRect(0, 0, w, h);
+    // patch mottle: light/dry and dark/rich blobs
+    for (let i = 0; i < 46; i++) {
+      c.fillStyle = `rgba(${110 + Math.random() * 40},${115 + Math.random() * 40},60,0.12)`;
+      c.beginPath(); c.ellipse(Math.random() * w, Math.random() * h, 20 + Math.random() * 70, 15 + Math.random() * 55, Math.random() * 3, 0, 7); c.fill();
+      c.fillStyle = `rgba(38,64,26,0.16)`;
+      c.beginPath(); c.ellipse(Math.random() * w, Math.random() * h, 25 + Math.random() * 60, 18 + Math.random() * 50, Math.random() * 3, 0, 7); c.fill();
+    }
+    // grass blades: short strokes in varied greens, denser clusters
+    for (let i = 0; i < 2600; i++) {
+      const x = Math.random() * w, y = Math.random() * h;
+      const lean = (Math.random() - 0.5) * 6;
+      const g = 55 + Math.random() * 75;
+      c.strokeStyle = `rgba(${g * 0.55 | 0},${g + 20 | 0},${g * 0.4 | 0},${0.25 + Math.random() * 0.4})`;
+      c.lineWidth = 0.7 + Math.random() * 1.1;
+      c.beginPath(); c.moveTo(x, y); c.lineTo(x + lean, y - 3 - Math.random() * 5); c.stroke();
+    }
+    // dry twigs / patches of dirt showing through
+    for (let i = 0; i < 14; i++) {
+      c.fillStyle = `rgba(96,78,52,${0.18 + Math.random() * 0.2})`;
+      c.beginPath(); c.ellipse(Math.random() * w, Math.random() * h, 8 + Math.random() * 22, 6 + Math.random() * 16, Math.random() * 3, 0, 7); c.fill();
+    }
+    speckle(c, w, h, 1400, 0.14, false);
+    grimeBottom(c, w, h, 0.12);
+  });
+  const bump = canvasOf(512, 512, (c, w, h) => {
+    c.fillStyle = '#8a8a8a'; c.fillRect(0, 0, w, h);
+    speckle(c, w, h, 2600, 0.4, true);
+    speckle(c, w, h, 1600, 0.32, false);
+  }, false);
+  const kit = { map, bump: linear(bump) };
+  kit.bumpNormal = normalFromCanvas(bump, 1.1);
+  return kit;
+}
+
+// ── pond water: teal with sun-caustic wave lines (normal is scrolled at runtime) ──
+export function makeWater() {
+  const map = canvasOf(256, 256, (c, w, h) => {
+    c.fillStyle = '#2e5f5e'; c.fillRect(0, 0, w, h);
+    for (let i = 0; i < 26; i++) {
+      c.fillStyle = `rgba(90,150,145,${0.06 + Math.random() * 0.1})`;
+      c.beginPath(); c.ellipse(Math.random() * w, Math.random() * h, 15 + Math.random() * 60, 8 + Math.random() * 30, Math.random() * 3, 0, 7); c.fill();
+    }
+    c.strokeStyle = 'rgba(180,225,220,0.20)'; c.lineWidth = 1.4;
+    for (let i = 0; i < 34; i++) {   // caustics
+      const y = Math.random() * h; c.beginPath(); c.moveTo(0, y);
+      for (let x = 0; x <= w; x += 16) c.lineTo(x, y + Math.sin(x * 0.06 + i) * 7);
+      c.stroke();
+    }
+  });
+  const bump = canvasOf(256, 256, (c, w, h) => {
+    c.fillStyle = '#8080ff'; c.fillRect(0, 0, w, h);
+    c.strokeStyle = '#a0a0ff'; c.lineWidth = 2;
+    for (let i = 0; i < 22; i++) {
+      const y = Math.random() * h; c.beginPath();
+      for (let x = 0; x <= w; x += 12) c.lineTo(x, y + Math.sin(x * 0.08 + i * 2) * 9);
+      c.stroke();
+    }
+  }, false);
+  const kit = { map, bump: linear(bump) };
+  kit.bumpNormal = normalFromCanvas(bump, 1.8);
+  return kit;
+}
+
 export function makeAsphalt() {
   const map = canvasOf(512, 512, (c, w, h) => {
     c.fillStyle = '#6b6964'; c.fillRect(0, 0, w, h);
@@ -551,6 +618,8 @@ export function makeSign(text, bg, fg) {
 export function buildTextureKit() {
   const kit = {
     sand: makeSand(),
+    grass: makeGrass(),
+    water: makeWater(),
     cobble: makeCobble(),
     stucco: makeStucco('#d8c9a4'),
     stuccoWarm: makeStucco('#cfae86'),
